@@ -2,6 +2,7 @@
 
 import time
 import asyncio
+from urllib.parse import urlparse
 from pyrogram import filters, Client
 from safe_repo import app
 from config import API_ID, API_HASH
@@ -131,6 +132,7 @@ async def how_to_copy_command(_, message):
 • Send: `/batch`
 • Bot will ask for start link: `https://t.me/c/12345/100`
 • Bot will ask for end link: `https://t.me/c/12345/105`
+• Choose whether to send the copied media to a supergroup
 • Bot downloads messages 100-105 automatically
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -309,6 +311,50 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
         return
 
+    destination_chat_id = None
+    destination_choice = await app.ask(
+        message.chat.id,
+        text="Do you want to send all batch media to a supergroup? Reply y or n.",
+    )
+    choice = (destination_choice.text or "").strip().lower()
+    if choice in {"y", "yes"}:
+        group_response = await app.ask(
+            message.chat.id,
+            text="Send the supergroup link, public message link, @username, or chat ID. The bot must already be a member with permission to post.",
+        )
+        group_ref = (group_response.text or "").strip()
+        if not group_ref:
+            await app.send_message(message.chat.id, "No supergroup link provided. Batch cancelled.")
+            return
+
+        parsed_group, _, _, _ = parse_telegram_link(group_ref)
+        target_reference = parsed_group
+        if target_reference is None:
+            parsed_url = urlparse(group_ref if "://" in group_ref else f"https://{group_ref}")
+            if parsed_url.hostname in {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}:
+                path_parts = [part for part in parsed_url.path.split("/") if part]
+                if len(path_parts) == 1 and not path_parts[0].startswith("+"):
+                    target_reference = path_parts[0]
+            if target_reference is None:
+                target_reference = group_ref
+        try:
+            target_chat = await app.get_chat(target_reference)
+        except Exception as e:
+            logger.warning(f"Could not resolve batch destination: {e}")
+            await app.send_message(
+                message.chat.id,
+                "I couldn't access that group. Add the bot to the supergroup first, then send its public link or chat ID.",
+            )
+            return
+
+        if str(target_chat.type).lower().split(".")[-1] not in {"group", "supergroup"}:
+            await app.send_message(message.chat.id, "That link does not point to a group. Batch cancelled.")
+            return
+        destination_chat_id = target_chat.id
+    elif choice not in {"n", "no"}:
+        await app.send_message(message.chat.id, "Please reply y/yes or n/no. Start /batch again to retry.")
+        return
+
     # Calculate total media to process
     total_messages = cl - cs + 1
     await app.send_message(message.chat.id, f"Total messages to process: {total_messages}")
@@ -357,7 +403,16 @@ async def batch_link(_, message):
                             url = f"https://t.me/c/{b_chat}/{i}" if isinstance(b_chat, int) else f"https://t.me/{b_chat}/{i}"
 
                         # Process the message
-                        await get_msg(userbot, user_id, msg.id, url, 0, message, True)
+                        await get_msg(
+                            userbot,
+                            user_id,
+                            msg.id,
+                            url,
+                            0,
+                            message,
+                            True,
+                            destination_chat_id,
+                        )
                         
                         # Increment processed count
                         processed_count += 1

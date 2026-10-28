@@ -25,6 +25,16 @@ from config import LOG_GROUP, CLONE_LOG_CHANNEL
 
 # Configure logging
 logger = logging.getLogger(__name__)
+DOWNLOAD_CREDIT = "Download by Rk 👍😍❤️"
+
+
+def add_download_credit(caption):
+    caption = (caption or "").rstrip()
+    if DOWNLOAD_CREDIT.casefold() in caption.casefold():
+        return caption
+    if len(caption) + len(DOWNLOAD_CREDIT) + 2 > 1024:
+        return caption
+    return f"{caption}\n\n{DOWNLOAD_CREDIT}" if caption else DOWNLOAD_CREDIT
 
 
 async def delete_message_after_1h(chat_id, message_id):
@@ -89,7 +99,8 @@ async def get_msg(
     msg_link,
     i,
     message,
-    is_batch=False):
+    is_batch=False,
+    destination_chat_id=None):
     edit = ""
     chat = ""
     round_message = False
@@ -155,8 +166,48 @@ async def get_msg(
                 logger.warning(f"Message {msg_id} in chat {chat} is service or empty")
                 return None
 
+            if getattr(msg, "has_protected_content", False):
+                await app.edit_message_text(
+                    sender,
+                    edit_id,
+                    "This message has content protection enabled, so it cannot be copied.",
+                )
+                return None
+
             if msg.media:
-                edit = await app.edit_message_text(sender, edit_id, "Trying to Download...")
+                edit = await app.edit_message_text(sender, edit_id, "Trying a direct forward...")
+                target_chat_id = destination_chat_id or user_chat_ids.get(chatx, chatx)
+                try:
+                    forwarded = await userbot.forward_messages(target_chat_id, chat, msg_id)
+                    if isinstance(forwarded, list):
+                        forwarded = forwarded[0] if forwarded else None
+                    if forwarded:
+                        try:
+                            await userbot.send_message(
+                                target_chat_id,
+                                DOWNLOAD_CREDIT,
+                                reply_to_message_id=forwarded.id,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not add the download credit: {e}")
+                        if msg.pinned_message:
+                            try:
+                                await forwarded.pin()
+                            except Exception:
+                                pass
+                        if not is_batch:
+                            await edit.edit("✅ Forwarded successfully. Original source attribution is preserved.")
+                            asyncio.create_task(delete_message_after_1h(sender, edit.id))
+                        else:
+                            await edit.edit("✅ Forwarded successfully.")
+                        asyncio.create_task(
+                            log_clone_operation(app, msg, "MEDIA FORWARD", sender, caption=msg.caption)
+                        )
+                        return None
+                except Exception as e:
+                    logger.info(f"Direct forward unavailable; falling back to upload: {e}")
+
+                edit = await app.edit_message_text(sender, edit_id, "Direct forward unavailable. Downloading media...")
                 max_retries = 3
                 retry_delay = 5
 
@@ -200,11 +251,11 @@ async def get_msg(
                     return None
 
             new_file_name = os.path.basename(file) if file else 'Unknown'
-            target_chat_id = user_chat_ids.get(chatx, chatx)
+            target_chat_id = destination_chat_id or user_chat_ids.get(chatx, chatx)
 
             if msg.media == MessageMediaType.WEB_PAGE:
-                edit = await app.edit_message_text(target_chat_id, edit_id, "Cloning...")
-                safe_repo = await app.send_message(sender, f"{msg.text.markdown}")
+                edit = await app.edit_message_text(sender, edit_id, "Cloning...")
+                safe_repo = await app.send_message(target_chat_id, f"{msg.text.markdown}")
                 if msg.pinned_message:
                     try:
                         await safe_repo.pin(both_sides=True)
@@ -231,7 +282,11 @@ async def get_msg(
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
                 original_caption = msg.caption if msg.caption else ''
-                final_caption = custom_caption if custom_caption else original_caption
+                final_caption = (
+                    f"{original_caption}\n\n{custom_caption}"
+                    if original_caption and custom_caption
+                    else custom_caption or original_caption
+                )
                 lines = final_caption.split('\n')
                 processed_lines = []
                 for line in lines:
@@ -243,7 +298,7 @@ async def get_msg(
                 replacements = load_replacement_words(sender)
                 for word, replace_word in replacements.items():
                     final_caption = final_caption.replace(word, replace_word)
-                caption = f"{final_caption}"
+                caption = add_download_credit(final_caption)
 
                 try:
                     safe_repo = await app.send_photo(
@@ -304,7 +359,11 @@ async def get_msg(
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
                 original_caption = msg.caption if msg.caption else ''
-                final_caption = custom_caption if custom_caption else original_caption
+                final_caption = (
+                    f"{original_caption}\n\n{custom_caption}"
+                    if original_caption and custom_caption
+                    else custom_caption or original_caption
+                )
                 lines = final_caption.split('\n')
                 processed_lines = []
                 for line in lines:
@@ -316,7 +375,7 @@ async def get_msg(
                 replacements = load_replacement_words(sender)
                 for word, replace_word in replacements.items():
                     final_caption = final_caption.replace(word, replace_word)
-                caption = f"{final_caption}\n\n__**{custom_caption}**__" if custom_caption else f"{final_caption}"
+                caption = add_download_credit(final_caption)
 
                 try:
                     if msg.document.mime_type == "application/pdf":
@@ -394,7 +453,11 @@ async def get_msg(
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
                 original_caption = msg.caption if msg.caption else ''
-                final_caption = custom_caption if custom_caption else original_caption
+                final_caption = (
+                    f"{original_caption}\n\n{custom_caption}"
+                    if original_caption and custom_caption
+                    else custom_caption or original_caption
+                )
                 lines = final_caption.split('\n')
                 processed_lines = []
                 for line in lines:
@@ -406,7 +469,7 @@ async def get_msg(
                 replacements = load_replacement_words(sender)
                 for word, replace_word in replacements.items():
                     final_caption = final_caption.replace(word, replace_word)
-                caption = f"{final_caption}"
+                caption = add_download_credit(final_caption)
 
                 try:
                     safe_repo = await app.send_video(
@@ -464,7 +527,7 @@ async def get_msg(
                     pass
             elif file:
                 await edit.edit("**`Uploading media...`**")
-                caption = f"{msg.caption if msg.caption else ''}"
+                caption = add_download_credit(msg.caption)
                 try:
                     safe_repo = await app.send_document(
                         chat_id=target_chat_id,
@@ -553,7 +616,15 @@ async def get_msg(
         try:
             # Use the robust parser result for public links too (handles topics)
             pub_chat = parsed_chat if parsed_chat is not None else msg_link.split("/")[-2]
-            await copy_message_with_chat_id(app, sender, pub_chat, msg_id, is_batch, thread_id)
+            await copy_message_with_chat_id(
+                app,
+                sender,
+                pub_chat,
+                msg_id,
+                is_batch,
+                thread_id,
+                destination_chat_id,
+            )
             await edit.delete()
         except Exception as e:
             await app.edit_message_text(sender, edit_id, f'Failed to save: `{msg_link}`\n\nError: {str(e)}')
@@ -612,8 +683,16 @@ async def trigger_stream_link_notifications(sender, result_msg, file_path):
         logger.error(f"notify_stream_links trigger failed: {e}")
 
 
-async def copy_message_with_chat_id(client, sender, chat_id, message_id, is_batch=False, thread_id=None):
-    target_chat_id = user_chat_ids.get(sender, sender)
+async def copy_message_with_chat_id(
+    client,
+    sender,
+    chat_id,
+    message_id,
+    is_batch=False,
+    thread_id=None,
+    destination_chat_id=None,
+):
+    target_chat_id = destination_chat_id or user_chat_ids.get(sender, sender)
 
     try:
         # For supergroup topics/threads, Pyrogram needs the thread id to fetch
@@ -626,9 +705,20 @@ async def copy_message_with_chat_id(client, sender, chat_id, message_id, is_batc
 
         msg = await client.get_messages(chat_id, message_id, **get_kwargs)
 
+        if getattr(msg, "has_protected_content", False):
+            await client.send_message(
+                sender,
+                "This message has content protection enabled, so it cannot be copied.",
+            )
+            return
+
         custom_caption = get_user_caption_preference(sender)
         original_caption = msg.caption if msg.caption else ''
-        final_caption = custom_caption if custom_caption else original_caption
+        final_caption = (
+            f"{original_caption}\n\n{custom_caption}"
+            if original_caption and custom_caption
+            else custom_caption or original_caption
+        )
 
         delete_words = load_delete_words(sender)
         for word in delete_words:
@@ -638,17 +728,15 @@ async def copy_message_with_chat_id(client, sender, chat_id, message_id, is_batc
         for word, replace_word in replacements.items():
             final_caption = final_caption.replace(word, replace_word)
 
-        caption = f"{final_caption}"
+        caption = add_download_credit(final_caption) if msg.media else final_caption
 
         if msg.media:
-            if msg.media == MessageMediaType.VIDEO:
-                result = await client.send_video(target_chat_id, msg.video.file_id, caption=caption)
-            elif msg.media == MessageMediaType.DOCUMENT:
-                result = await client.send_document(target_chat_id, msg.document.file_id, caption=caption)
-            elif msg.media == MessageMediaType.PHOTO:
-                result = await client.send_photo(target_chat_id, msg.photo.file_id, caption=caption)
-            else:
-                result = await client.copy_message(target_chat_id, chat_id, message_id)
+            result = await client.copy_message(
+                target_chat_id,
+                chat_id,
+                message_id,
+                caption=caption,
+            )
         else:
             result = await client.copy_message(target_chat_id, chat_id, message_id)
 

@@ -94,7 +94,7 @@ async def get_seconds(time_string):
 
 PROGRESS_BAR = (
     "╭━━━〔 {status} 〕━━━╮\n"
-    "{spinner} **{theme}** `{percent}%`\n"
+    "{spinner} {sticker} **{theme}** `{percent}%`\n"
     "┌─ 📁 **Name:** `{filename}`\n"
     "├─ 📄 **Type:** `{extension}`\n"
     "├─ {link_label} {link}\n"
@@ -112,6 +112,13 @@ PROGRESS_BAR = (
     "📞 [t.me/Radheyojha096](https://t.me/Radheyojha096)\n"
     "__Powered by safe_repo__"
 )
+
+PROGRESS_STICKERS = [
+    "🎉", "🥳", "😎", "🤩", "😍", "😇", "🤖", "👻", "💀", "🎃",
+    "💩", "🤡", "👽", "🐱", "🐼", "🦊", "🐸", "🐵", "🦄", "🐳",
+    "🦋", "🌻", "🍀", "🍉", "🍕", "🍩", "⚽", "🏆", "🎯", "🎁",
+    "💎", "🔥", "⚡", "🌈", "🚀",
+]
 
 # Colourful gradient themes: (name, [gradient_filled..., empty])
 THEME_STYLES = [
@@ -267,6 +274,7 @@ async def progress_bar(current, total, *args):
         theme = choose_theme()
         bar = choose_progress_style(percentage)
         spinner = choose_spinner()
+        sticker = random.choice(PROGRESS_STICKERS)
         extra_title, extra_line1, extra_line2 = choose_extra_text()
         link = clean_link(source_link)
 
@@ -289,6 +297,7 @@ async def progress_bar(current, total, *args):
         text = PROGRESS_BAR.format(
             status=status,
             spinner=spinner,
+            sticker=sticker,
             filename=filename,
             extension=extension,
             link_label=link_label,

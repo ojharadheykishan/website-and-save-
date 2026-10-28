@@ -10,6 +10,14 @@ from safe_repo.core.mongo.users_db import add_user, get_user
 from config import OWNER_ID, CLONE_LOG_CHANNEL
 from datetime import datetime, timedelta, timezone
 
+WELCOME_STYLES = [
+    ("🌈", "Aaj ka din ek fresh start ke naam!"),
+    ("✨", "Ready ho? Chalo kuch naya save karte hain!"),
+    ("💎", "Welcome back, aaj ka session full power hoga!"),
+    ("🎨", "Naya din, naya rang, nayi downloads!"),
+    ("🚀", "Let's make this session smooth and fast!"),
+]
+
 # ------------------- Start-Buttons ------------------- #
 
 buttons = InlineKeyboardMarkup(
@@ -80,9 +88,11 @@ By Radhey Kishan Ojha
     
     # Get random motivational quote
     quote = random.choice(script.MOTIVATIONAL_QUOTES)
+    welcome_emoji, welcome_line = random.choice(WELCOME_STYLES)
     
     await message.reply_text(
-        text=script.START_TXT.format(message.from_user.mention) + 
+        text=f"{welcome_emoji} **{welcome_line}**\n\n" +
+             script.START_TXT.format(message.from_user.mention) +
              f"\n\n{status_text}\n\n💭 **Daily Motivation:**\n\"{quote}\"",
         reply_markup=buttons
     )
