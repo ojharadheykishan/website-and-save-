@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+safe_repo/__pycache__/
+safe_repo/core/__pycache__/
+safe_repo/core/mongo/__pycache__/
+safe_repo/modules/__pycache__/
+.env
+*.session
+bot.log
+monitor.log
+package-lock.json
