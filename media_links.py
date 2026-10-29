@@ -34,20 +34,24 @@ def _get_cache_dir(cache_dir=None):
     return _STREAM_CACHE_DIR
 
 
-def _get_base_url(base_url=None):
+def get_public_base_url(base_url=None):
     if base_url:
-        return base_url.rstrip("/")
+        value = base_url.strip()
+    else:
+        value = (
+            os.environ.get("PUBLIC_BASE_URL")
+            or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+            or os.environ.get("RAILWAY_STATIC_URL")
+            or os.environ.get("RENDER_EXTERNAL_URL")
+            or os.environ.get("APP_URL")
+            or os.environ.get("BASE_URL")
+            or ""
+        ).strip()
 
-    env_url = (
-        os.environ.get("PUBLIC_BASE_URL")
-        or os.environ.get("APP_URL")
-        or os.environ.get("RENDER_EXTERNAL_URL")
-        or os.environ.get("BASE_URL")
-        or ""
-    ).strip()
-
-    if env_url:
-        return env_url.rstrip("/")
+    if value:
+        if not value.startswith(("http://", "https://")):
+            value = f"https://{value}"
+        return value.rstrip("/")
 
     return "http://127.0.0.1:5000"
 
@@ -83,7 +87,7 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
     target_path = cache_path / f"{token}_{safe_name}"
     shutil.copy2(source_path, target_path)
 
-    base_url = _get_base_url(base_url)
+    base_url = get_public_base_url(base_url)
     return {
         "token": token,
         "file_path": str(target_path),
