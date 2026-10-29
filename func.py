@@ -38,48 +38,6 @@ async def gen_link(app,chat_id):
    return link
 
 async def subscribe(app, message):
-    update_channel = CHANNEL_ID
-    if not update_channel:
-        return 0
-
-    try:
-        member = await app.get_chat_member(update_channel, message.from_user.id)
-    except UserNotParticipant:
-        try:
-            url = await gen_link(app, update_channel)
-        except Exception as error:
-            logger.warning("Could not export force-subscribe invite link: %s", error)
-            try:
-                chat = await app.get_chat(update_channel)
-                url = f"https://t.me/{chat.username}" if chat.username else None
-            except Exception:
-                url = None
-
-        if not url:
-            await message.reply_text(
-                "Please join the required updates channel. The bot admin needs to configure its invite link."
-            )
-            return 1
-
-        await message.reply_photo(
-            photo="https://graph.org/file/d44f024a08ded19452152.jpg",
-            caption=script.FORCE_MSG.format(message.from_user.mention),
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("Join Now...", url=url)]]
-            ),
-        )
-        return 1
-    except Exception as error:
-        logger.error("Could not verify force-subscribe membership: %s", error)
-        await message.reply_text(
-            "I couldn't verify your channel membership. The bot admin should check that CHANNEL_ID is the correct numeric channel ID and that this bot is an administrator in that channel."
-        )
-        return 1
-
-    if getattr(member.status, "value", member.status) == "kicked":
-        await message.reply_text("You are banned from the updates channel. Contact @safe_repo.")
-        return 1
-
     return 0
 
 
