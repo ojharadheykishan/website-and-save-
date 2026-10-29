@@ -21,7 +21,7 @@ from safe_repo.web.study import build_public_study_url, build_video_index, load_
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "study-secret-key")
-QUALITY_HEIGHTS = {"360p": 360, "480p": 480, "720p": 720}
+QUALITY_HEIGHTS = {"360p": 360, "480p": 480, "720p": 720, "1080p": 1080}
 _quality_lock = threading.Lock()
 
 # Auto-ping settings
@@ -797,6 +797,8 @@ def player_page(token):
               .subject { margin-top:5px; color:var(--muted); }
               .video-frame { position:relative; overflow:hidden; aspect-ratio:16/9; background:#050706; border:1px solid var(--line); border-radius:12px; }
               video { display:block; width:100%; height:100%; object-fit:contain; background:#050706; }
+              video.fit-cover { object-fit:cover; }
+              video.rotated { transform:rotate(90deg) scale(.56); }
               .control-panel { margin-top:12px; padding:14px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
               .seek-row { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
               input[type=range] { width:100%; accent-color:var(--accent); }
@@ -829,10 +831,13 @@ def player_page(token):
                   <button id="back" type="button" title="Back 10 seconds">−10</button>
                   <button id="play" type="button" title="Play or pause">Play</button>
                   <button id="forward" type="button" title="Forward 10 seconds">+10</button>
-                  <label class="setting" for="quality">Quality<select id="quality"><option value="original" selected>Original</option><option value="auto">Auto</option><option value="360p">360p</option><option value="480p">480p</option><option value="720p">720p</option></select></label>
-                  <label class="setting" for="speed">Speed<select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option><option value="2.5">2.5×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+                  <label class="setting" for="quality">Quality<select id="quality"><option value="original" selected>Original</option><option value="auto">Auto</option><option value="360p">360p</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+                  <label class="setting" for="speed">Speed<select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option><option value="2.25">2.25×</option><option value="2.5">2.5×</option><option value="2.75">2.75×</option><option value="3">3×</option><option value="3.25">3.25×</option><option value="3.5">3.5×</option><option value="3.75">3.75×</option><option value="4">4×</option></select></label>
                   <button id="mute" type="button" title="Mute or unmute">Mute</button>
                   <label class="setting" for="volume">Volume<input class="volume" id="volume" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume"/></label>
+                  <button id="loop" type="button" aria-pressed="false" title="Repeat video">Repeat off</button>
+                  <button id="rotate" type="button" title="Rotate video 90 degrees">Rotate</button>
+                  <button id="fit" type="button" aria-pressed="false" title="Toggle fit and fill">Fit</button>
                   <button id="pip" type="button" title="Picture in picture">PiP</button>
                   <button id="fullscreen" type="button" title="Fullscreen">Fullscreen</button>
                 </div>
@@ -846,7 +851,7 @@ def player_page(token):
                   <button id="share" type="button">Share player</button>
                 </nav>
                 {% if description %}<div class="details">{{ description|e }}</div>{% endif %}
-                <div class="note">Auto quality selects a cached 360p–720p version based on device and connection. First use of a quality may take a moment to prepare. Original opens the uploaded file directly.</div>
+                <div class="note">Auto quality selects a cached 360p–1080p version based on device and connection. First use of a quality may take a moment to prepare. Original opens the uploaded file directly. Keyboard: Space/K play, ←/→ seek, ↑/↓ volume, [/] speed, M mute, F fullscreen.</div>
               </section>
             </main>
             <script>
@@ -866,6 +871,7 @@ def player_page(token):
                 const slow = connection && (connection.saveData || connection.downlink < 1.5 || /2g/.test(connection.effectiveType || ''));
                 if (slow || viewHeight < 600) return '360p';
                 if ((connection && connection.downlink < 5) || viewHeight < 1000) return '480p';
+                if (viewHeight >= 1500 && (!connection || connection.downlink >= 10)) return '1080p';
                 return '720p';
               }
               function formatTime(seconds) {
@@ -905,18 +911,55 @@ def player_page(token):
               document.getElementById('back').addEventListener('click', () => { video.currentTime = Math.max(0, video.currentTime - 10); });
               document.getElementById('forward').addEventListener('click', () => { video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10); });
               document.getElementById('volume').addEventListener('input', event => { video.volume = Number(event.target.value); video.muted = video.volume === 0; });
+              video.addEventListener('volumechange', () => {
+                document.getElementById('volume').value = String(video.muted ? 0 : video.volume);
+                document.getElementById('mute').textContent = video.muted ? 'Unmute' : 'Mute';
+              });
               document.getElementById('mute').addEventListener('click', event => { video.muted = !video.muted; event.currentTarget.textContent = video.muted ? 'Unmute' : 'Mute'; });
-              document.getElementById('fullscreen').addEventListener('click', () => document.getElementById('frame').requestFullscreen?.());
+              document.getElementById('loop').addEventListener('click', event => {
+                video.loop = !video.loop;
+                event.currentTarget.textContent = video.loop ? 'Repeat on' : 'Repeat off';
+                event.currentTarget.setAttribute('aria-pressed', String(video.loop));
+              });
+              document.getElementById('rotate').addEventListener('click', () => video.classList.toggle('rotated'));
+              document.getElementById('fit').addEventListener('click', event => {
+                video.classList.toggle('fit-cover');
+                const isCover = video.classList.contains('fit-cover');
+                event.currentTarget.textContent = isCover ? 'Fill' : 'Fit';
+                event.currentTarget.setAttribute('aria-pressed', String(isCover));
+              });
+              document.getElementById('fullscreen').addEventListener('click', async () => {
+                try {
+                  if (document.fullscreenElement) await document.exitFullscreen();
+                  else await document.getElementById('frame').requestFullscreen();
+                } catch { status.textContent = 'Fullscreen is not supported by this browser.'; }
+              });
+              document.addEventListener('fullscreenchange', () => {
+                document.getElementById('fullscreen').textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+              });
               document.getElementById('pip').addEventListener('click', async () => { try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } catch { status.textContent = 'Picture in picture is not supported by this browser.'; } });
               document.getElementById('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(streamUrl); status.textContent = 'Stream link copied.'; } catch { status.textContent = streamUrl; } });
               document.getElementById('share').addEventListener('click', async () => { try { if (navigator.share) await navigator.share({title:document.title, url:playerUrl}); else { await navigator.clipboard.writeText(playerUrl); status.textContent = 'Player link copied.'; } } catch {} });
               document.addEventListener('keydown', event => {
-                if (event.target.matches('input,select,textarea,button')) return;
-                if (event.code === 'Space') { event.preventDefault(); video.paused ? video.play().catch(() => {}) : video.pause(); }
-                if (event.key === 'ArrowLeft') video.currentTime = Math.max(0, video.currentTime - 10);
-                if (event.key === 'ArrowRight') video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
-                if (event.key.toLowerCase() === 'm') video.muted = !video.muted;
-                if (event.key.toLowerCase() === 'f') document.getElementById('frame').requestFullscreen?.();
+                if (event.target.matches('input,select,textarea,button') || event.altKey || event.ctrlKey || event.metaKey) return;
+                const key = event.key.toLowerCase();
+                if (event.code === 'Space' || key === 'k') { event.preventDefault(); video.paused ? video.play().catch(() => {}) : video.pause(); }
+                else if (key === 'arrowleft' || key === 'j') video.currentTime = Math.max(0, video.currentTime - 10);
+                else if (key === 'arrowright' || key === 'l') video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+                else if (key === 'arrowup') { event.preventDefault(); video.volume = Math.min(1, video.volume + 0.05); video.muted = false; }
+                else if (key === 'arrowdown') { event.preventDefault(); video.volume = Math.max(0, video.volume - 0.05); }
+                else if (key === 'm') video.muted = !video.muted;
+                else if (key === 'f') document.getElementById('fullscreen').click();
+                else if (key === '[' || key === ']') {
+                  const rates = Array.from(speedSelect.options, option => Number(option.value));
+                  const currentIndex = rates.indexOf(video.playbackRate);
+                  const nextIndex = Math.max(0, Math.min(rates.length - 1, currentIndex + (key === ']' ? 1 : -1)));
+                  video.playbackRate = rates[nextIndex];
+                  speedSelect.value = String(video.playbackRate);
+                }
+                else if (/^[0-9]$/.test(key) && Number.isFinite(video.duration)) {
+                  video.currentTime = video.duration * Number(key) / 10;
+                }
               });
               setQuality('original');
             </script>
