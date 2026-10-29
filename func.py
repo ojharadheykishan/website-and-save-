@@ -72,7 +72,7 @@ async def subscribe(app, message):
     except Exception as error:
         logger.error("Could not verify force-subscribe membership: %s", error)
         await message.reply_text(
-            "I couldn't verify your channel membership. Please try again later or contact @safe_repo."
+            "I couldn't verify your channel membership. The bot admin should check that CHANNEL_ID is the correct numeric channel ID and that this bot is an administrator in that channel."
         )
         return 1
 
