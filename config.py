@@ -18,3 +18,6 @@ OWNER_ID = [8552899459]
 
 # MongoDB removed from this codebase; keep MONGO_DB for backwards compatibility
 MONGO_DB = ""
+
+API_ID = int(os.environ.get("API_ID") or API_ID)
+API_HASH = (os.environ.get("API_HASH") or API_HASH).strip()

@@ -36,11 +36,13 @@ async def broadcast(_, message):
     
     for user in all_users:
         try:
-            await send_msg(user, message.reply_to_message)
-            done_users += 1
+            result = await send_msg(user, message.reply_to_message)
+            if result is None:
+                done_users += 1
+            else:
+                failed_users += 1
             await asyncio.sleep(0.1)
         except Exception:
-            pass
             failed_users += 1
     if failed_users == 0:
         await exmsg.edit_text(
@@ -63,7 +65,6 @@ async def announced(_, message):
       return await message.reply_text("Reply To Some Post To Broadcast")
     exmsg = await message.reply_text("sᴛᴀʀᴛᴇᴅ ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ!")
     users = await get_users() or []
-    print(users)
     done_users = 0
     failed_users = 0
   

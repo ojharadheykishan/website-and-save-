@@ -3,6 +3,7 @@
 import asyncio
 import time
 import os
+import re
 import subprocess
 import json
 import cv2
@@ -90,6 +91,21 @@ async def send_alert(client, message, alert_type, details):
 
 def thumbnail(sender):
     return f'{sender}.jpg' if os.path.exists(f'{sender}.jpg') else None
+
+
+def apply_rename_tag(file_path, user_id):
+    if not file_path or not os.path.exists(file_path):
+        return file_path
+    tag = get_user_rename_preference(user_id)
+    if not tag or tag == "safe_repo":
+        return file_path
+    safe_tag = re.sub(r'[\\/:*?"<>|]+', "_", tag).strip(" .")
+    if not safe_tag:
+        return file_path
+    directory, filename = os.path.split(file_path)
+    renamed_path = os.path.join(directory, f"{safe_tag}_{filename}")
+    os.replace(file_path, renamed_path)
+    return renamed_path
 
 
 async def get_msg(
@@ -250,8 +266,9 @@ async def get_msg(
                     await app.edit_message_text(sender, edit_id, error_msg)
                     return None
 
+            file = apply_rename_tag(file, sender)
             new_file_name = os.path.basename(file) if file else 'Unknown'
-            target_chat_id = destination_chat_id or user_chat_ids.get(chatx, chatx)
+            target_chat_id = destination_chat_id or get_user_chat_id(chatx, chatx)
 
             if msg.media == MessageMediaType.WEB_PAGE:
                 edit = await app.edit_message_text(sender, edit_id, "Cloning...")
@@ -692,7 +709,7 @@ async def copy_message_with_chat_id(
     thread_id=None,
     destination_chat_id=None,
 ):
-    target_chat_id = destination_chat_id or user_chat_ids.get(sender, sender)
+    target_chat_id = destination_chat_id or get_user_chat_id(sender, sender)
 
     try:
         # For supergroup topics/threads, Pyrogram needs the thread id to fetch
@@ -850,11 +867,20 @@ def save_replacement_words(user_id, replacements):
     data[str(user_id)] = u
     _write_json(_DATA_FILE, data)
 
-# Initialize the dictionary to store user preferences for renaming
-user_rename_preferences = {}
+def get_user_chat_id(user_id, default=None):
+    if user_id in user_chat_ids:
+        return user_chat_ids[user_id]
+    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
+    return user.get("chat_id") or default
 
-# Initialize the dictionary to store user caption
-user_caption_preferences = {}
+
+def save_user_chat_id(user_id, chat_id):
+    data = _read_json(_DATA_FILE, {})
+    user = data.get(str(user_id), {})
+    user["chat_id"] = chat_id
+    data[str(user_id)] = user
+    _write_json(_DATA_FILE, data)
+    user_chat_ids[user_id] = chat_id
 
 # Function to load user session from MongoDB
 def load_user_session(sender_id):
@@ -864,23 +890,29 @@ def load_user_session(sender_id):
 
 # Function to handle the /setrename command
 async def set_rename_command(user_id, custom_rename_tag):
-    # Update the user_rename_preferences dictionary
-    user_rename_preferences[str(user_id)] = custom_rename_tag
+    data = _read_json(_DATA_FILE, {})
+    user = data.get(str(user_id), {})
+    user["rename_tag"] = custom_rename_tag
+    data[str(user_id)] = user
+    _write_json(_DATA_FILE, data)
 
 # Function to get the user's custom renaming preference
 def get_user_rename_preference(user_id):
-    # Retrieve the user's custom renaming tag if set, or default to 'safe_repo'
-    return user_rename_preferences.get(str(user_id), 'safe_repo')
+    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
+    return user.get("rename_tag", "safe_repo")
 
 # Function to set custom caption preference
 async def set_caption_command(user_id, custom_caption):
-    # Update the user_caption_preferences dictionary
-    user_caption_preferences[str(user_id)] = custom_caption
+    data = _read_json(_DATA_FILE, {})
+    user = data.get(str(user_id), {})
+    user["caption"] = custom_caption
+    data[str(user_id)] = user
+    _write_json(_DATA_FILE, data)
 
 # Function to get the user's custom caption preference
 def get_user_caption_preference(user_id):
-    # Retrieve the user's custom caption if set, or default to an empty string
-    return user_caption_preferences.get(str(user_id), '')
+    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
+    return user.get("caption", "")
 
 # Initialize the dictionary to store user sessions
 

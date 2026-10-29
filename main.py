@@ -6,7 +6,17 @@ from urllib.parse import urlparse
 from pyrogram import filters, Client
 from safe_repo import app
 from config import API_ID, API_HASH
-from safe_repo.core.get_func import get_msg
+from safe_repo.core.get_func import (
+    get_msg,
+    get_user_chat_id,
+    load_delete_words,
+    load_replacement_words,
+    save_delete_words,
+    save_replacement_words,
+    save_user_chat_id,
+    set_caption_command,
+    set_rename_command,
+)
 from safe_repo.core.func import *
 from safe_repo.core.func import parse_telegram_link
 from safe_repo.core.mongo import db, plans_db
@@ -22,7 +32,10 @@ logger = logging.getLogger(__name__)
 
 @app.on_message(filters.regex(r'https?://[^\s]+') & ~filters.command("batch") & ~filters.reply)
 async def single_link(_, message):
-    user_id = message.chat.id
+    if not message.from_user or message.chat.id != message.from_user.id:
+        await message.reply_text("Please send media links in a private chat with the bot.")
+        return
+    user_id = message.from_user.id
     lol = await chk_user(message, user_id)
     if lol == 1:
         return
@@ -207,49 +220,101 @@ __**Powered by safe_repo**__
 @app.on_callback_query(filters.regex(r'^(setchat|setrename|setcaption|setreplacement|addsession|delete|logout|setthumb|reset|remthumb)$'))
 async def callback_query_handler(_, callback_query):
     user_id = callback_query.from_user.id
-    
-    if callback_query.data == 'setchat':
-        await callback_query.answer("Send me the ID of that chat:")
-        # We'll need to implement session management for this
-    elif callback_query.data == 'setrename':
-        await callback_query.answer("Send me the rename tag:")
-    elif callback_query.data == 'setcaption':
-        await callback_query.answer("Send me the caption:")
-    elif callback_query.data == 'setreplacement':
-        await callback_query.answer("Send me the replacement words in the format: 'WORD(s)' 'REPLACEWORD'")
-    elif callback_query.data == 'addsession':
-        await callback_query.answer("This method is deprecated ... use /login")
-    elif callback_query.data == 'delete':
-        await callback_query.answer("Send words separated by space to delete them from caption/filename ...")
-    elif callback_query.data == 'logout':
-        from safe_repo.modules.login import delete_session_files
-        files_deleted = await delete_session_files(user_id)
-        if files_deleted:
-            await callback_query.answer("Logged out and deleted session successfully.")
-        else:
-            await callback_query.answer("You are not logged in")
-    elif callback_query.data == 'setthumb':
-        await callback_query.answer('Please send the photo you want to set as the thumbnail.')
-    elif callback_query.data == 'reset':
-        try:
-            # Clear delete words for this user
-            from safe_repo.core.get_func import save_delete_words
+
+    async def ask_for_input(prompt, input_filter=filters.text):
+        return await app.ask(
+            callback_query.message.chat.id,
+            text=prompt,
+            filters=input_filter,
+            user_id=user_id,
+            timeout=300,
+        )
+
+    await callback_query.answer()
+    try:
+        if callback_query.data == 'setchat':
+            response = await ask_for_input("Send a chat ID or public @username for the output destination.")
+            reference = (response.text or "").strip()
+            if not reference:
+                raise ValueError("Please send a valid chat ID or username.")
+            try:
+                reference = int(reference)
+            except ValueError:
+                reference = reference if reference.startswith("@") else f"@{reference}"
+            target = await app.get_chat(reference)
+            save_user_chat_id(user_id, target.id)
+            await response.reply_text(f"✅ Output destination saved: {target.title or target.id}")
+        elif callback_query.data == 'setrename':
+            response = await ask_for_input("Send the filename prefix to use for future downloads.")
+            tag = (response.text or "").strip()
+            if not tag:
+                raise ValueError("Filename prefix cannot be empty.")
+            await set_rename_command(user_id, tag)
+            await response.reply_text("✅ Filename prefix saved.")
+        elif callback_query.data == 'setcaption':
+            response = await ask_for_input("Send the caption text to add to copied media.")
+            await set_caption_command(user_id, (response.text or "").strip())
+            await response.reply_text("✅ Caption saved.")
+        elif callback_query.data == 'setreplacement':
+            response = await ask_for_input("Send replacement in this format: old text => new text")
+            value = (response.text or "").strip()
+            if "=>" not in value:
+                raise ValueError("Use this format: old text => new text")
+            old_text, new_text = (part.strip() for part in value.split("=>", 1))
+            if not old_text:
+                raise ValueError("Old text cannot be empty.")
+            replacements = load_replacement_words(user_id)
+            replacements[old_text] = new_text
+            save_replacement_words(user_id, replacements)
+            await response.reply_text("✅ Replacement saved.")
+        elif callback_query.data == 'delete':
+            response = await ask_for_input("Send words separated by spaces to remove them from captions.")
+            words = set((response.text or "").split())
+            if not words:
+                raise ValueError("Send at least one word.")
+            save_delete_words(user_id, load_delete_words(user_id) | words)
+            await response.reply_text("✅ Caption removal words saved.")
+        elif callback_query.data == 'addsession':
+            await callback_query.message.reply_text("Use /login to connect your Telegram account.")
+        elif callback_query.data == 'logout':
+            from safe_repo.modules.login import delete_session_files
+            files_deleted = await delete_session_files(user_id)
+            if files_deleted:
+                await callback_query.message.reply_text("✅ Login session cleared.")
+            else:
+                await callback_query.message.reply_text("ℹ️ No saved login session was found.")
+        elif callback_query.data == 'setthumb':
+            response = await ask_for_input("Send the thumbnail photo now.", filters.photo)
+            saved_path = await response.download(file_name=f"{user_id}.jpg")
+            if not saved_path:
+                raise ValueError("Could not save that photo.")
+            await response.reply_text("✅ Thumbnail saved.")
+        elif callback_query.data == 'reset':
             save_delete_words(user_id, set())
-            await callback_query.answer("All words have been removed from your delete list.")
-        except Exception as e:
-            await callback_query.answer(f"Error clearing delete list: {e}")
-    elif callback_query.data == 'remthumb':
-        try:
+            save_replacement_words(user_id, {})
+            await set_caption_command(user_id, "")
+            await set_rename_command(user_id, "safe_repo")
+            await callback_query.message.reply_text("✅ Caption, replacement, and filename settings reset.")
+        elif callback_query.data == 'remthumb':
             import os
-            os.remove(f'{user_id}.jpg')
-            await callback_query.answer('Thumbnail removed successfully!')
-        except FileNotFoundError:
-            await callback_query.answer("No thumbnail found to remove.")
+            try:
+                os.remove(f"{user_id}.jpg")
+                await callback_query.message.reply_text("✅ Thumbnail removed.")
+            except FileNotFoundError:
+                await callback_query.message.reply_text("ℹ️ No thumbnail was saved.")
+    except asyncio.TimeoutError:
+        await callback_query.message.reply_text("⌛ Settings action timed out. Open /settings to try again.")
+    except Exception as error:
+        logger.exception("Settings action %s failed", callback_query.data)
+        await callback_query.message.reply_text(f"⚠️ Could not update that setting: {error}")
 
 
 @app.on_message(filters.command("batch"))
 async def batch_link(_, message):
-    user_id = message.chat.id    
+    if not message.from_user or message.chat.id != message.from_user.id:
+        await message.reply_text("Please run /batch in a private chat with the bot.")
+        return
+    user_id = message.from_user.id
     lol = await chk_user(message, user_id)
     if lol == 1:
         return    
@@ -311,6 +376,10 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
         return
 
+    if cl < cs:
+        await app.send_message(message.chat.id, "End link must be the same as or after the start link.")
+        return
+
     destination_chat_id = None
     destination_choice = await app.ask(
         message.chat.id,
@@ -366,6 +435,7 @@ async def batch_link(_, message):
         return
     
     userbot = None
+    processed_count = 0
     try:     
         data = await db.get_data(user_id)
         
@@ -385,7 +455,6 @@ async def batch_link(_, message):
 
         try:
             users_loop[user_id] = True
-            processed_count = 0
             
             for i in range(int(s), int(l) + 1):
                 if user_id in users_loop and users_loop[user_id]:
@@ -442,6 +511,7 @@ async def batch_link(_, message):
                 await userbot.stop()
             except:
                 pass
+        users_loop.pop(user_id, None)
         
         # Show completion message after batch processing
         if processed_count > 0:
@@ -451,7 +521,7 @@ async def batch_link(_, message):
 
 @app.on_message(filters.command("cancel"))
 async def stop_batch(_, message):
-    user_id = message.chat.id
+    user_id = message.from_user.id if message.from_user else message.chat.id
     if user_id in users_loop:
         users_loop[user_id] = False
         await app.send_message(message.chat.id, "Batch processing stopped.")
