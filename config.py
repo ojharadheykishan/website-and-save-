@@ -21,3 +21,4 @@ MONGO_DB = ""
 
 API_ID = int(os.environ.get("API_ID") or API_ID)
 API_HASH = (os.environ.get("API_HASH") or API_HASH).strip()
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or CHANNEL_ID)
