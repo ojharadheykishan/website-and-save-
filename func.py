@@ -10,7 +10,6 @@ import logging
 from pyrogram import enums
 from config import CHANNEL_ID, OWNER_ID 
 from safe_repo.core import script
-from safe_repo.core.mongo.plans_db import premium_users
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,13 +22,7 @@ import asyncio, subprocess, re, os, time
 
 
 async def chk_user(message, user_id):
-    user = await premium_users()
-    # Check if user is in premium list or is owner (lifetime premium)
-    if user_id in user:
-        return 0
-    else:
-        await message.reply_text("Purchase premium to do the tasks...")
-        return 1
+    return 0
 
 
 

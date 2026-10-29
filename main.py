@@ -19,7 +19,7 @@ from safe_repo.core.get_func import (
 )
 from safe_repo.core.func import *
 from safe_repo.core.func import parse_telegram_link
-from safe_repo.core.mongo import db, plans_db
+from safe_repo.core.mongo import db
 from pyrogram.errors import FloodWait, SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered
 from safe_repo.core import script
 import logging
@@ -36,9 +36,6 @@ async def single_link(_, message):
         await message.reply_text("Please send media links in a private chat with the bot.")
         return
     user_id = message.from_user.id
-    lol = await chk_user(message, user_id)
-    if lol == 1:
-        return
     
     link = get_link(message.text) 
     
@@ -315,9 +312,6 @@ async def batch_link(_, message):
         await message.reply_text("Please run /batch in a private chat with the bot.")
         return
     user_id = message.from_user.id
-    lol = await chk_user(message, user_id)
-    if lol == 1:
-        return    
     
     text = message.text.strip()
     parts = text.split()
@@ -428,12 +422,6 @@ async def batch_link(_, message):
     total_messages = cl - cs + 1
     await app.send_message(message.chat.id, f"Total messages to process: {total_messages}")
 
-    # Check if user is premium before enforcing batch size limit
-    is_premium = await plans_db.check_premium(user_id)
-    if not is_premium and cl - cs > 100:
-        await app.send_message(message.chat.id, "Only 100 messages allowed in batch size... Purchase premium to fly 💸")
-        return
-    
     userbot = None
     processed_count = 0
     try:     
