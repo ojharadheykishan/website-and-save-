@@ -2,14 +2,27 @@ import os
 import time
 import threading
 import mimetypes
+import re
+import shutil
+import subprocess
+import uuid
+from pathlib import Path
+from urllib.parse import urlsplit
 import requests
 from flask import Flask, send_file, abort, redirect, request, render_template_string
-from safe_repo.core.media_links import get_stream_file, read_stream_entries, get_stream_entry
+from safe_repo.core.media_links import (
+  get_public_base_url,
+  get_stream_file,
+  read_stream_entries,
+  get_stream_entry,
+)
 from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "study-secret-key")
+QUALITY_HEIGHTS = {"360p": 360, "480p": 480, "720p": 720}
+_quality_lock = threading.Lock()
 
 # Auto-ping settings
 AUTO_PING_ENABLED = True
@@ -636,9 +649,71 @@ def build_stream_response(path, as_attachment=False):
     return response
 
 
+def build_quality_variant(source_path, token, quality):
+    if quality not in QUALITY_HEIGHTS:
+        raise ValueError("Unsupported video quality.")
+    if os.path.splitext(source_path)[1].lower() not in {".mp4", ".m4v", ".mov", ".mkv", ".webm"}:
+        raise ValueError("Quality conversion is only available for video files.")
+
+    try:
+        max_source_bytes = int(os.environ.get("MAX_QUALITY_SOURCE_MB", "750")) * 1024 * 1024
+    except ValueError:
+        max_source_bytes = 750 * 1024 * 1024
+    if os.path.getsize(source_path) > max_source_bytes:
+        raise ValueError("This file is too large for on-demand quality conversion. Use Original quality.")
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("Video quality conversion is unavailable on this server.")
+
+    variant_dir = Path(source_path).parent / ".variants" / token
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    output_path = variant_dir / f"{quality}.mp4"
+    if output_path.exists() and output_path.stat().st_size:
+        return str(output_path)
+
+    temporary_path = variant_dir / f"{quality}.{uuid.uuid4().hex}.tmp.mp4"
+    with _quality_lock:
+        if output_path.exists() and output_path.stat().st_size:
+            return str(output_path)
+        command = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-i", source_path,
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-vf", f"scale=-2:min({QUALITY_HEIGHTS[quality]}\\,ih)",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "26",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(temporary_path),
+        ]
+        try:
+            subprocess.run(command, check=True, capture_output=True, timeout=900)
+            os.replace(temporary_path, output_path)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("Quality conversion took too long. Use Original quality.") from error
+        except subprocess.CalledProcessError as error:
+            app.logger.warning("ffmpeg quality conversion failed: %s", error.stderr[-1000:])
+            raise RuntimeError("Could not convert this video to the selected quality.") from error
+        finally:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return str(output_path)
+
+
 @app.route('/stream/<token>')
 def stream_media(token):
     """Serve a cached media file as a direct HTTP stream."""
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        abort(404)
     entry = get_stream_file(token)
     if not entry:
         abort(404)
@@ -650,75 +725,213 @@ def stream_media(token):
     return response
 
 
+@app.route('/stream/<token>/<quality>')
+def stream_quality(token, quality):
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        abort(404)
+    if quality not in QUALITY_HEIGHTS:
+        abort(404)
+    entry = get_stream_file(token)
+    if not entry:
+        abort(404)
+    try:
+        path = build_quality_variant(entry["file_path"], token, quality)
+    except ValueError as error:
+        return str(error), 422
+    except RuntimeError as error:
+        return str(error), 503
+    response = build_stream_response(path)
+    if response is None:
+        abort(404)
+    return response
+
+
 @app.route('/player/<token>')
 def player_page(token):
-    """Return a simple HTML page that opens the stream in a player-friendly way."""
+    """Render a responsive player with quality and external-player controls."""
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        abort(404)
     entry = get_stream_file(token)
     if not entry:
         abort(404)
 
-    stream_url = f"{request.url_root.rstrip('/')}/stream/{token}"
+    base_url = get_public_base_url()
+    stream_url = f"{base_url}/stream/{token}"
+    player_url = f"{base_url}/player/{token}"
+    quality_urls = {
+        quality: f"{base_url}/stream/{token}/{quality}"
+        for quality in QUALITY_HEIGHTS
+    }
+    parsed_stream = urlsplit(stream_url)
+    intent_target = f"{parsed_stream.netloc}{parsed_stream.path}"
+    vlc_intent = (
+        f"intent://{intent_target}#Intent;scheme={parsed_stream.scheme};"
+        "package=org.videolan.vlc;type=video/*;end"
+    )
+    mx_intent = (
+        f"intent://{intent_target}#Intent;scheme={parsed_stream.scheme};"
+        "package=com.mxtech.videoplayer.ad;type=video/*;end"
+    )
     entry_meta = get_stream_entry(token)
-    title = entry_meta.get('title') if entry_meta else 'Media Player'
-    description = entry_meta.get('description') if entry_meta else ''
-    subject = entry_meta.get('subject') if entry_meta else 'General'
-    html = f"""
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{title}</title>
-        <style>
-          body {{ margin:0; background:#000; color:#fff; font-family:Arial,sans-serif; }}
-          .wrap {{ min-height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:16px; box-sizing:border-box; }}
-          .box {{ width:100%; max-width:900px; background:#111; border-radius:12px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.4); }}
-          .top {{ padding:12px 16px; background:#1a1a1a; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }}
-          .controls {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }}
-          select, button {{ border:none; border-radius:6px; padding:6px 10px; background:#222; color:#fff; }}
-          video {{ width:100%; height:auto; background:#000; display:block; }}
-          a {{ color:#4da3ff; text-decoration:none; }}
-          .small {{ font-size:0.85rem; color:#aaa; }}
-          .meta {{ padding: 12px 16px; background:#0f172a; color:#e2e8f0; }}
-        </style>
-      </head>
-      <body>
-        <div class="wrap">
-          <div class="box">
-            <div class="top">
-              <div>
-                <div>🎬 {title}</div>
-                <div class="small">Subject: {subject}</div>
-              </div>
-              <div class="controls">
-                <select id="speed">
-                  <option value="1">1x</option>
-                  <option value="1.25">1.25x</option>
-                  <option value="1.5">1.5x</option>
-                  <option value="2">2x</option>
-                  <option value="4">4x</option>
-                </select>
-                <a href="{stream_url}" target="_blank">Open Direct Link</a>
-                <a href="javascript:void(0);" onclick="window.open('{stream_url}', 'streamPopup', 'width=900,height=600');">Popup Player</a>
-                <a href="{stream_url}?download=1" target="_blank">Download</a>
-                <button onclick="navigator.clipboard.writeText('{stream_url}')">Copy Stream</button>
-              </div>
-            </div>
-            <div class="meta">
-              <div><strong>Description:</strong> {description}</div>
-            </div>
-            <video id="player" controls autoplay playsinline>
-              <source src="{stream_url}" />
-            </video>
-          </div>
-        </div>
-        <script>
-          const player = document.getElementById('player');
-          const speedSelect = document.getElementById('speed');
-          speedSelect.addEventListener('change', () => {{ player.playbackRate = parseFloat(speedSelect.value); }});
-        </script>
-      </body>
-    </html>
-    """
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    title = (entry_meta or {}).get("title") or "Media Player"
+    description = (entry_meta or {}).get("description") or ""
+    subject = (entry_meta or {}).get("subject") or "General"
+    return render_template_string(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <meta name="theme-color" content="#101513" />
+            <title>{{ title|e }} · LinkByRK Player</title>
+            <style>
+              :root { color-scheme: dark; --page:#101513; --panel:#191f1c; --line:#343c37; --text:#f2f5f2; --muted:#aab5ad; --accent:#b9f36b; }
+              * { box-sizing:border-box; }
+              body { margin:0; background:radial-gradient(ellipse at 50% -20%,#2b3930 0,var(--page) 54%); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+              a { color:inherit; text-decoration:none; }
+              .shell { max-width:1040px; margin:auto; padding:24px 18px 36px; }
+              .masthead { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
+              .brand { color:var(--accent); font-weight:750; letter-spacing:.04em; }
+              .title { margin:0; font-size:clamp(20px,4vw,32px); line-height:1.2; overflow-wrap:anywhere; }
+              .subject { margin-top:5px; color:var(--muted); }
+              .video-frame { position:relative; overflow:hidden; aspect-ratio:16/9; background:#050706; border:1px solid var(--line); border-radius:12px; }
+              video { display:block; width:100%; height:100%; object-fit:contain; background:#050706; }
+              .control-panel { margin-top:12px; padding:14px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+              .seek-row { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+              input[type=range] { width:100%; accent-color:var(--accent); }
+              .controls { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-top:14px; }
+              button,select { min-height:40px; padding:8px 12px; color:var(--text); background:#252c28; border:1px solid #414a44; border-radius:7px; font:inherit; }
+              button { cursor:pointer; }
+              button:hover,a.action:hover { border-color:var(--accent); color:var(--accent); }
+              button:focus-visible,select:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+              .setting { display:flex; align-items:center; gap:8px; color:var(--muted); }
+              .volume { width:100px!important; }
+              .status { min-height:22px; margin-top:10px; color:var(--muted); font-size:13px; }
+              .actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:14px; }
+              a.action { display:inline-flex; min-height:40px; align-items:center; padding:8px 12px; border:1px solid var(--line); border-radius:7px; background:#202722; }
+              .details { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); color:#d5ddd7; white-space:pre-wrap; overflow-wrap:anywhere; }
+              .note { margin-top:12px; color:var(--muted); font-size:13px; }
+              @media(max-width:600px) { .shell{padding:16px 12px 26px}.control-panel{padding:10px}.controls{gap:7px}.setting{flex:1 1 44%;justify-content:space-between}.video-frame{aspect-ratio:16/9;border-radius:8px} }
+            </style>
+          </head>
+          <body>
+            <main class="shell">
+              <header class="masthead"><a class="brand" href="/">LINKBYRK / PLAYER</a><a class="action" href="{{ player_url|e }}">↗ Open page</a></header>
+              <h1 class="title">{{ title|e }}</h1>
+              <div class="subject">{{ subject|e }}</div>
+              <section class="video-frame" id="frame" aria-label="Video player">
+                <video id="video" controls playsinline preload="metadata" poster=""></video>
+              </section>
+              <section class="control-panel" aria-label="Playback controls">
+                <div class="seek-row"><span id="current">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek"/><span id="duration">0:00</span></div>
+                <div class="controls">
+                  <button id="back" type="button" title="Back 10 seconds">−10</button>
+                  <button id="play" type="button" title="Play or pause">Play</button>
+                  <button id="forward" type="button" title="Forward 10 seconds">+10</button>
+                  <label class="setting" for="quality">Quality<select id="quality"><option value="original" selected>Original</option><option value="auto">Auto</option><option value="360p">360p</option><option value="480p">480p</option><option value="720p">720p</option></select></label>
+                  <label class="setting" for="speed">Speed<select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option><option value="2.5">2.5×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+                  <button id="mute" type="button" title="Mute or unmute">Mute</button>
+                  <label class="setting" for="volume">Volume<input class="volume" id="volume" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume"/></label>
+                  <button id="pip" type="button" title="Picture in picture">PiP</button>
+                  <button id="fullscreen" type="button" title="Fullscreen">Fullscreen</button>
+                </div>
+                <div class="status" id="status" role="status">Choose quality, then press play.</div>
+                <nav class="actions" aria-label="Video links">
+                  <a class="action" href="{{ stream_url|e }}" target="_blank" rel="noopener">Direct stream</a>
+                  <a class="action" href="{{ stream_url|e }}?download=1">Download</a>
+                  <a class="action" href="{{ vlc_intent|e }}">Open in VLC (Android)</a>
+                  <a class="action" href="{{ mx_intent|e }}">Open in MX Player (Android)</a>
+                  <button id="copy" type="button">Copy stream link</button>
+                  <button id="share" type="button">Share player</button>
+                </nav>
+                {% if description %}<div class="details">{{ description|e }}</div>{% endif %}
+                <div class="note">Auto quality selects a cached 360p–720p version based on device and connection. First use of a quality may take a moment to prepare. Original opens the uploaded file directly.</div>
+              </section>
+            </main>
+            <script>
+              const video = document.getElementById('video');
+              const streamUrl = {{ stream_url|tojson }};
+              const playerUrl = {{ player_url|tojson }};
+              const qualityUrls = {{ quality_urls|tojson }};
+              const qualitySelect = document.getElementById('quality');
+              const speedSelect = document.getElementById('speed');
+              const status = document.getElementById('status');
+              const seek = document.getElementById('seek');
+              let selectedQuality = 'auto';
+              let seeking = false;
+              function autoQuality() {
+                const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+                const viewHeight = Math.max(window.innerHeight, window.innerWidth) * (window.devicePixelRatio || 1);
+                const slow = connection && (connection.saveData || connection.downlink < 1.5 || /2g/.test(connection.effectiveType || ''));
+                if (slow || viewHeight < 600) return '360p';
+                if ((connection && connection.downlink < 5) || viewHeight < 1000) return '480p';
+                return '720p';
+              }
+              function formatTime(seconds) {
+                if (!Number.isFinite(seconds)) return '0:00';
+                const total = Math.floor(seconds);
+                return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+              }
+              function setQuality(value) {
+                selectedQuality = value;
+                const target = value === 'original' ? streamUrl : qualityUrls[value === 'auto' ? autoQuality() : value];
+                const wasPlaying = !video.paused;
+                const time = video.currentTime || 0;
+                const speed = video.playbackRate;
+                status.textContent = value === 'original' ? 'Loading original quality…' : 'Preparing ' + (value === 'auto' ? 'automatic ' : '') + (value === 'auto' ? autoQuality() : value) + '…';
+                video.src = target;
+                video.load();
+                video.addEventListener('loadedmetadata', function restore() {
+                  video.currentTime = Math.min(time, video.duration || time);
+                  video.playbackRate = speed;
+                  status.textContent = 'Ready · ' + (value === 'original' ? 'Original' : value === 'auto' ? 'Auto · ' + autoQuality() : value);
+                  if (wasPlaying) video.play().catch(() => {});
+                }, {once:true});
+              }
+              qualitySelect.addEventListener('change', () => setQuality(qualitySelect.value));
+              speedSelect.addEventListener('change', () => { video.playbackRate = Number(speedSelect.value); });
+              video.addEventListener('timeupdate', () => {
+                if (!seeking && Number.isFinite(video.duration) && video.duration > 0) seek.value = String(Math.floor(video.currentTime / video.duration * 1000));
+                document.getElementById('current').textContent = formatTime(video.currentTime);
+              });
+              video.addEventListener('durationchange', () => { document.getElementById('duration').textContent = formatTime(video.duration); });
+              video.addEventListener('play', () => { document.getElementById('play').textContent = 'Pause'; });
+              video.addEventListener('pause', () => { document.getElementById('play').textContent = 'Play'; });
+              video.addEventListener('error', () => { status.textContent = 'Playback failed. Try Original quality or open the direct stream in VLC/MX Player.'; });
+              seek.addEventListener('input', () => { seeking = true; document.getElementById('current').textContent = formatTime(Number(seek.value) / 1000 * video.duration); });
+              seek.addEventListener('change', () => { if (Number.isFinite(video.duration)) video.currentTime = Number(seek.value) / 1000 * video.duration; seeking = false; });
+              document.getElementById('play').addEventListener('click', () => video.paused ? video.play().catch(() => {}) : video.pause());
+              document.getElementById('back').addEventListener('click', () => { video.currentTime = Math.max(0, video.currentTime - 10); });
+              document.getElementById('forward').addEventListener('click', () => { video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10); });
+              document.getElementById('volume').addEventListener('input', event => { video.volume = Number(event.target.value); video.muted = video.volume === 0; });
+              document.getElementById('mute').addEventListener('click', event => { video.muted = !video.muted; event.currentTarget.textContent = video.muted ? 'Unmute' : 'Mute'; });
+              document.getElementById('fullscreen').addEventListener('click', () => document.getElementById('frame').requestFullscreen?.());
+              document.getElementById('pip').addEventListener('click', async () => { try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } catch { status.textContent = 'Picture in picture is not supported by this browser.'; } });
+              document.getElementById('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(streamUrl); status.textContent = 'Stream link copied.'; } catch { status.textContent = streamUrl; } });
+              document.getElementById('share').addEventListener('click', async () => { try { if (navigator.share) await navigator.share({title:document.title, url:playerUrl}); else { await navigator.clipboard.writeText(playerUrl); status.textContent = 'Player link copied.'; } } catch {} });
+              document.addEventListener('keydown', event => {
+                if (event.target.matches('input,select,textarea,button')) return;
+                if (event.code === 'Space') { event.preventDefault(); video.paused ? video.play().catch(() => {}) : video.pause(); }
+                if (event.key === 'ArrowLeft') video.currentTime = Math.max(0, video.currentTime - 10);
+                if (event.key === 'ArrowRight') video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+                if (event.key.toLowerCase() === 'm') video.muted = !video.muted;
+                if (event.key.toLowerCase() === 'f') document.getElementById('frame').requestFullscreen?.();
+              });
+              setQuality('original');
+            </script>
+          </body>
+        </html>
+        """,
+        title=title,
+        subject=subject,
+        description=description,
+        stream_url=stream_url,
+        player_url=player_url,
+        quality_urls=quality_urls,
+        vlc_intent=vlc_intent,
+        mx_intent=mx_intent,
+    )
 
 
 def start_bot_process():

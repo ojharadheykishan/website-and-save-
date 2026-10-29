@@ -10,7 +10,12 @@ from datetime import datetime
 from pyrogram import filters
 from safe_repo import app
 from config import STREAM_CHANNEL, STREAM_CHANNEL_USERNAME, CLONE_LOG_CHANNEL
-from safe_repo.core.media_links import append_stream_link, save_stream_file, read_stream_links
+from safe_repo.core.media_links import (
+    append_stream_link,
+    get_public_base_url,
+    save_stream_file,
+    read_stream_links,
+)
 from safe_repo.web.study import build_public_study_url
 
 logger = logging.getLogger(__name__)
@@ -228,13 +233,7 @@ def build_public_study_link(metadata=None, base_url=None):
     title = str(metadata.get("title") or "").strip() or None
 
     if not base_url:
-        base_url = (
-            os.environ.get("PUBLIC_BASE_URL")
-            or os.environ.get("APP_URL")
-            or os.environ.get("RENDER_EXTERNAL_URL")
-            or os.environ.get("BASE_URL")
-            or "https://save-by-radhey.onrender.com"
-        ).strip()
+        base_url = get_public_base_url()
 
     if subject and date and title:
         return build_public_study_url(base_url, subject=subject, date=date, q=title)
