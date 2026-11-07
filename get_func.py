@@ -130,7 +130,8 @@ async def get_msg(
     i,
     message,
     is_batch=False,
-    destination_chat_id=None):
+    destination_chat_id=None,
+    destination_thread_id=None):
     edit = ""
     chat = ""
     round_message = False
@@ -206,8 +207,10 @@ async def get_msg(
 
             if msg.media:
                 edit = await app.edit_message_text(sender, edit_id, "Trying a direct forward...")
-                target_chat_id = destination_chat_id or user_chat_ids.get(chatx, chatx)
+                target_chat_id = destination_chat_id or get_user_chat_id(chatx, chatx)
                 try:
+                    if destination_thread_id is not None:
+                        raise ValueError("Topic destinations require an upload")
                     forwarded = await userbot.forward_messages(target_chat_id, chat, msg_id)
                     if isinstance(forwarded, list):
                         forwarded = forwarded[0] if forwarded else None
@@ -284,10 +287,15 @@ async def get_msg(
             file = apply_rename_tag(file, sender)
             new_file_name = os.path.basename(file) if file else 'Unknown'
             target_chat_id = destination_chat_id or get_user_chat_id(chatx, chatx)
+            target_thread_id = destination_thread_id
 
             if msg.media == MessageMediaType.WEB_PAGE:
                 edit = await app.edit_message_text(sender, edit_id, "Cloning...")
-                safe_repo = await app.send_message(target_chat_id, f"{msg.text.markdown}")
+                safe_repo = await app.send_message(
+                    target_chat_id,
+                    f"{msg.text.markdown}",
+                    reply_to_message_id=target_thread_id,
+                )
                 if msg.pinned_message:
                     try:
                         await safe_repo.pin(both_sides=True)
@@ -337,6 +345,7 @@ async def get_msg(
                         chat_id=target_chat_id,
                         photo=file,
                         caption=caption,
+                        reply_to_message_id=target_thread_id,
                         progress=progress_bar,
                         progress_args=(
                             '**__Uploading...__**\n',
@@ -419,6 +428,7 @@ async def get_msg(
                             document=file,
                             caption=caption,
                             thumb=thumb_path,
+                            reply_to_message_id=target_thread_id,
                             progress=progress_bar,
                             progress_args=(
                                 '**`Uploading PDF...`**\n',
@@ -435,6 +445,7 @@ async def get_msg(
                             document=file,
                             caption=caption,
                             thumb=thumb_path,
+                            reply_to_message_id=target_thread_id,
                             progress=progress_bar,
                             progress_args=(
                                 '**`Uploading document...`**\n',
@@ -514,6 +525,7 @@ async def get_msg(
                         video=file,
                         caption=caption,
                         thumb=thumb_path,
+                        reply_to_message_id=target_thread_id,
                         progress=progress_bar,
                         progress_args=(
                             '**`Uploading video...`**\n',
@@ -572,6 +584,7 @@ async def get_msg(
                         document=file,
                         caption=caption,
                         thumb=thumb_path,
+                        reply_to_message_id=target_thread_id,
                         progress=progress_bar,
                         progress_args=(
                             '**`Uploading...`**\n',
@@ -663,6 +676,7 @@ async def get_msg(
                 is_batch,
                 thread_id,
                 destination_chat_id,
+                destination_thread_id,
             )
             await edit.delete()
         except Exception as e:
@@ -730,6 +744,7 @@ async def copy_message_with_chat_id(
     is_batch=False,
     thread_id=None,
     destination_chat_id=None,
+    destination_thread_id=None,
 ):
     target_chat_id = destination_chat_id or get_user_chat_id(sender, sender)
 
@@ -775,9 +790,15 @@ async def copy_message_with_chat_id(
                 chat_id,
                 message_id,
                 caption=caption,
+                reply_to_message_id=destination_thread_id,
             )
         else:
-            result = await client.copy_message(target_chat_id, chat_id, message_id)
+            result = await client.copy_message(
+                target_chat_id,
+                chat_id,
+                message_id,
+                reply_to_message_id=destination_thread_id,
+            )
 
         if result:
             if target_chat_id != sender and target_chat_id != LOG_GROUP:

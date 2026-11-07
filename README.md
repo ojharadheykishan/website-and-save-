@@ -31,8 +31,11 @@ set a YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment va
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to
 fetch and upload an authorized video. Configure the destination with **Settings → Set Chat ID**
-and make sure the bot can post in that group. YouTube watch links are not direct file URLs; for
-your own uploads, download the file through YouTube Studio before sending it to the bot.
+and make sure the bot can post in that group or channel. During `/batch`, you can choose a
+group, supergroup, channel, or forum topic as the destination; add the bot with posting
+permission and provide a topic message link when targeting a forum topic. YouTube watch links
+are not direct file URLs; for your own uploads, download the file through YouTube Studio before
+sending it to the bot.
 
 ## Features:
 

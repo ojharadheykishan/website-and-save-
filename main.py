@@ -385,22 +385,23 @@ async def batch_link(_, message):
         return
 
     destination_chat_id = None
+    destination_thread_id = None
     destination_choice = await app.ask(
         message.chat.id,
-        text="Do you want to send all batch media to a supergroup? Reply y or n.",
+        text="Do you want to send all batch media to a group, supergroup, or channel? Reply y or n.",
     )
     choice = (destination_choice.text or "").strip().lower()
     if choice in {"y", "yes"}:
         group_response = await app.ask(
             message.chat.id,
-            text="Send the supergroup link, public message link, @username, or chat ID. The bot must already be a member with permission to post.",
+            text="Send the group/channel link, topic message link, @username, or chat ID. The bot must be a member with permission to post.",
         )
         group_ref = (group_response.text or "").strip()
         if not group_ref:
-            await app.send_message(message.chat.id, "No supergroup link provided. Batch cancelled.")
+            await app.send_message(message.chat.id, "No destination provided. Batch cancelled.")
             return
 
-        parsed_group, _, _, _ = parse_telegram_link(group_ref)
+        parsed_group, _, destination_thread_id, _ = parse_telegram_link(group_ref)
         target_reference = parsed_group
         if target_reference is None:
             parsed_url = urlparse(group_ref if "://" in group_ref else f"https://{group_ref}")
@@ -416,12 +417,12 @@ async def batch_link(_, message):
             logger.warning(f"Could not resolve batch destination: {e}")
             await app.send_message(
                 message.chat.id,
-                "I couldn't access that group. Add the bot to the supergroup first, then send its public link or chat ID.",
+                "I couldn't access that destination. Add the bot with posting permission, then send its link or chat ID.",
             )
             return
 
-        if str(target_chat.type).lower().split(".")[-1] not in {"group", "supergroup"}:
-            await app.send_message(message.chat.id, "That link does not point to a group. Batch cancelled.")
+        if str(target_chat.type).lower().split(".")[-1] not in {"group", "supergroup", "channel"}:
+            await app.send_message(message.chat.id, "That link does not point to a group or channel. Batch cancelled.")
             return
         destination_chat_id = target_chat.id
     elif choice not in {"n", "no"}:
@@ -485,6 +486,7 @@ async def batch_link(_, message):
                             message,
                             True,
                             destination_chat_id,
+                            destination_thread_id,
                         )
                         
                         # Increment processed count

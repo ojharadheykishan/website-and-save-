@@ -5,10 +5,12 @@
 
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from pyrogram import filters
 from safe_repo import app
+from safe_repo.core.func import new_progress_session, progress_bar
 from config import STREAM_CHANNEL, STREAM_CHANNEL_USERNAME, CLONE_LOG_CHANNEL
 from safe_repo.core.media_links import (
     append_stream_link,
@@ -133,19 +135,49 @@ def has_media_payload(message):
     )
 
 
-async def download_media_payload(client, message, progress_sender=None, progress_message_id=None):
+async def download_media_payload(
+    client,
+    message,
+    progress_sender=None,
+    progress_message_id=None,
+    progress_message=None,
+):
     """Download media with a fallback for forwarded files."""
     file_name = build_local_file_name(message)
     media_file = None
+    status_message = progress_message
+    if status_message is None and progress_sender and progress_message_id:
+        try:
+            status_message = await app.get_messages(progress_sender, progress_message_id)
+        except Exception as error:
+            logger.warning("Could not load media progress message: %s", error)
+
+    progress_args = (
+        "📥 Downloading media...",
+        status_message,
+        time.time(),
+        file_name,
+        "",
+        new_progress_session(),
+    )
 
     try:
-        media_file = await client.download_media(message, file_name=file_name)
+        media_file = await client.download_media(
+            message,
+            file_name=file_name,
+            progress=progress_bar if status_message else None,
+            progress_args=progress_args,
+        )
     except Exception:
         media_file = None
 
     if not media_file:
         try:
-            media_file = await message.download(file_name=file_name)
+            media_file = await message.download(
+                file_name=file_name,
+                progress=progress_bar if status_message else None,
+                progress_args=progress_args,
+            )
         except Exception:
             media_file = None
 
@@ -332,6 +364,7 @@ async def handle_direct_media(client, message):
             message,
             progress_sender=chat_id,
             progress_message_id=status_message.id,
+            progress_message=status_message,
         )
         if not media_file:
             await app.edit_message_text(
