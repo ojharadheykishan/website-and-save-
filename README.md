@@ -27,6 +27,12 @@ Use `/yt <YouTube video link>` for a title preview and official YouTube link. To
 keywords, set a YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
 This command does not download YouTube videos.
 
+Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
+the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to
+fetch and upload an authorized video. Configure the destination with **Settings → Set Chat ID**
+and make sure the bot can post in that group. YouTube watch links are not direct file URLs; for
+your own uploads, download the file through YouTube Studio before sending it to the bot.
+
 ## Features:
 
 - Able to extarct the content the from private or public entities/channels/group

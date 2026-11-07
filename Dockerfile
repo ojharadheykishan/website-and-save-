@@ -21,9 +21,8 @@ RUN mkdir -p safe_repo/core/mongo safe_repo/web safe_repo/modules \
 	&& ln -sfn ../../admin.py safe_repo/web/admin.py \
 	&& ln -sfn ../../study.py safe_repo/web/study.py \
 	&& ln -sfn '../../__init__ (3).py' safe_repo/modules/__init__.py \
-	&& for module in gcast login main plans start stats stream yt; do \
+	&& for module in archive gcast login main plans start stats stream yt; do \
 		ln -sfn "../../${module}.py" "safe_repo/modules/${module}.py"; \
 	done
 
 CMD ["python3", "app.py"]
-

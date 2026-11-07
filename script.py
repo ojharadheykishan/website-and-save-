@@ -186,6 +186,9 @@ CMD_HELP_TXT = """
     Usage: /yt <YouTube video link> or /yt <search words>
     Keyword search requires the YOUTUBE_API_KEY environment variable
 
+ 🔹 /archive - Save an authorized video to your configured study group
+    Usage: Reply to a video with /archive, or provide a direct HTTPS video-file URL
+
  🔹 /howtocopy - Detailed guide for copying media
     Usage: /howtocopy (shows step-by-step instructions) (works only during batch process)
 
