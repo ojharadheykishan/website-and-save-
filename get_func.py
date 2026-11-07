@@ -19,6 +19,7 @@ from safe_repo.core.func import (
     progress_bar, video_metadata, screenshot, humanbytes, parse_telegram_link,
     clean_link, choose_progress_style, choose_theme, choose_spinner,
     choose_status, choose_extra_text, convert, get_link, get_seconds,
+    new_progress_session,
 )
 from safe_repo.core.media_links import append_stream_link, save_stream_file
 from safe_repo.core.mongo import db
@@ -91,6 +92,19 @@ async def send_alert(client, message, alert_type, details):
 
 def thumbnail(sender):
     return f'{sender}.jpg' if os.path.exists(f'{sender}.jpg') else None
+
+
+def media_duration(message):
+    video = getattr(message, "video", None)
+    if video:
+        return getattr(video, "duration", 0) or 0
+
+    document = getattr(message, "document", None)
+    for attribute in getattr(document, "attributes", ()):
+        duration = getattr(attribute, "duration", None)
+        if duration is not None:
+            return duration
+    return 0
 
 
 def apply_rename_tag(file_path, user_id):
@@ -239,6 +253,7 @@ async def get_msg(
                                     time.time(),
                                     "",
                                     msg_link,
+                                    new_progress_session(),
                                 ),
                             ),
                             timeout=3600,
@@ -329,6 +344,7 @@ async def get_msg(
                             time.time(),
                             file,
                             msg_link,
+                            new_progress_session(),
                         ),
                     )
                     if msg.pinned_message:
@@ -373,6 +389,8 @@ async def get_msg(
             elif msg.media == MessageMediaType.DOCUMENT:
                 await edit.edit("**`Uploading document...`**")
                 thumb_path = thumbnail(chatx)
+                if (msg.document.mime_type or "").startswith("video/"):
+                    thumb_path = await screenshot(file, media_duration(msg), chatx)
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
                 original_caption = msg.caption if msg.caption else ''
@@ -408,6 +426,7 @@ async def get_msg(
                                 time.time(),
                                 file,
                                 msg_link,
+                                new_progress_session(),
                             ),
                         )
                     else:
@@ -423,6 +442,7 @@ async def get_msg(
                                 time.time(),
                                 file,
                                 msg_link,
+                                new_progress_session(),
                             ),
                         )
                     if msg.pinned_message:
@@ -466,7 +486,7 @@ async def get_msg(
                     pass
             elif msg.media == MessageMediaType.VIDEO:
                 await edit.edit("**`Uploading video...`**")
-                thumb_path = thumbnail(chatx)
+                thumb_path = await screenshot(file, media_duration(msg), chatx)
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
                 original_caption = msg.caption if msg.caption else ''
@@ -501,6 +521,7 @@ async def get_msg(
                             time.time(),
                             file,
                             msg_link,
+                            new_progress_session(),
                         ),
                     )
                     if msg.pinned_message:
@@ -558,6 +579,7 @@ async def get_msg(
                             time.time(),
                             file,
                             msg_link,
+                            new_progress_session(),
                         ),
                     )
                     if msg.pinned_message:
@@ -919,4 +941,3 @@ def get_user_caption_preference(user_id):
 sessions = {}
 
 SET_PIC = "settings.jpg"
-

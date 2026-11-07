@@ -27,6 +27,9 @@ This branch is purely based on `Pyrogram V2` with more stability And this is bas
 - Able to extarct the content the from private or public entities/channels/group
 - direct rename and forward to channel/group/users
 - Custome caption/thumbnail
+- Automatically generate compact video thumbnails when no custom thumbnail is set
+- Twelve progress-bar themes and 40 rotating emoji icons for each transfer
+- Allow two concurrent media transfers to reduce waiting during parallel jobs
 - auto default thumbnail removal from videos
 - Deleting/Replacing words from file name and caption
 - Easy to use and deploy

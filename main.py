@@ -51,7 +51,13 @@ async def single_link(_, message):
         if data and data.get("session"):
             session = data.get("session")
             try:
-                userbot = Client(":userbot:", api_id=API_ID, api_hash=API_HASH, session_string=session)
+                userbot = Client(
+                    ":userbot:",
+                    api_id=API_ID,
+                    api_hash=API_HASH,
+                    session_string=session,
+                    max_concurrent_transmissions=2,
+                )
                 await userbot.start()                
             except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
                 return await msg.edit_text("Login expired /login again...")
@@ -430,7 +436,13 @@ async def batch_link(_, message):
         if data and data.get("session"):
             session = data.get("session")
             try:
-                userbot = Client(":userbot:", api_id=API_ID, api_hash=API_HASH, session_string=session)
+                userbot = Client(
+                    ":userbot:",
+                    api_id=API_ID,
+                    api_hash=API_HASH,
+                    session_string=session,
+                    max_concurrent_transmissions=2,
+                )
                 await userbot.start()                
             except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
                 return await app.send_message(message.chat.id, "Your login expired ... /login again")
@@ -515,4 +527,3 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing stopped.")
     else:
         await app.send_message(message.chat.id, "No active batch processing to stop.")
-

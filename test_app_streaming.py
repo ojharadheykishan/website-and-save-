@@ -41,6 +41,7 @@ def test_player_page_offers_1080p_and_extended_playback_controls(monkeypatch):
     assert 'id="loop"' in page
     assert 'id="rotate"' in page
     assert 'id="fit"' in page
+    assert "Made by Rk" in page
 
 
 def test_1080p_quality_endpoint_serves_variant(monkeypatch, tmp_path):

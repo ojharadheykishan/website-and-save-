@@ -793,6 +793,8 @@ def player_page(token):
               .shell { max-width:1040px; margin:auto; padding:24px 18px 36px; }
               .masthead { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
               .brand { color:var(--accent); font-weight:750; letter-spacing:.04em; }
+              .brand-stack { display:flex; flex-direction:column; line-height:1.2; }
+              .byline { color:var(--muted); font-size:11px; font-weight:500; letter-spacing:0; }
               .title { margin:0; font-size:clamp(20px,4vw,32px); line-height:1.2; overflow-wrap:anywhere; }
               .subject { margin-top:5px; color:var(--muted); }
               .video-frame { position:relative; overflow:hidden; aspect-ratio:16/9; background:#050706; border:1px solid var(--line); border-radius:12px; }
@@ -819,7 +821,7 @@ def player_page(token):
           </head>
           <body>
             <main class="shell">
-              <header class="masthead"><a class="brand" href="/">LINKBYRK / PLAYER</a><a class="action" href="{{ player_url|e }}">↗ Open page</a></header>
+              <header class="masthead"><div class="brand-stack"><a class="brand" href="/">LINKBYRK / PLAYER</a><span class="byline">Made by Rk</span></div><a class="action" href="{{ player_url|e }}">↗ Open page</a></header>
               <h1 class="title">{{ title|e }}</h1>
               <div class="subject">{{ subject|e }}</div>
               <section class="video-frame" id="frame" aria-label="Video player">

@@ -7,6 +7,7 @@ import random
 import time
 import re
 import logging
+import tempfile
 from pyrogram import enums
 from config import CHANNEL_ID, OWNER_ID 
 from safe_repo.core import script
@@ -16,8 +17,7 @@ logger = logging.getLogger(__name__)
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import cv2
 from pyrogram.errors import FloodWait, InviteHashInvalid, InviteHashExpired, UserAlreadyParticipant, UserNotParticipant
-from datetime import datetime as dt
-import asyncio, subprocess, re, os, time
+import asyncio, re, os, time
 
 
 
@@ -97,19 +97,23 @@ PROGRESS_STICKERS = [
     "🎉", "🥳", "😎", "🤩", "😍", "😇", "🤖", "👻", "💀", "🎃",
     "💩", "🤡", "👽", "🐱", "🐼", "🦊", "🐸", "🐵", "🦄", "🐳",
     "🦋", "🌻", "🍀", "🍉", "🍕", "🍩", "⚽", "🏆", "🎯", "🎁",
-    "💎", "🔥", "⚡", "🌈", "🚀",
+    "💎", "🔥", "⚡", "🌈", "🚀", "🐶", "🤣", "🍔", "🫡", "🧸",
 ]
 
 # Colourful gradient themes: (name, [gradient_filled..., empty])
 THEME_STYLES = [
-    ("🔵 Neon Blue",   ["🟦", "🟦", "🟦", "⬜"]),
-    ("🔴 Fire Red",    ["🟥", "🟧", "🟨", "⬜"]),
-    ("🟢 Matrix Green",["🟩", "🟩", "⬜"]),
-    ("🟡 Gold Premium",["🟨", "🟧", "⬜"]),
-    ("🟣 Purple Cyber",["🟪", "🟪", "⬜"]),
-    ("🌈 Rainbow",     ["🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬜"]),
+    ("🔵 Neon Blue",    ["🟦", "🟦", "🟦", "⬜"]),
+    ("🔴 Fire Red",     ["🟥", "🟧", "🟨", "⬜"]),
+    ("🟢 Matrix Green", ["🟩", "🟩", "⬜"]),
+    ("🟡 Gold Premium", ["🟨", "🟧", "⬜"]),
+    ("🟣 Purple Cyber", ["🟪", "🟪", "⬜"]),
+    ("🌈 Rainbow",      ["🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬜"]),
     ("💎 Crystal",     ["🩵", "🩵", "⬜"]),
     ("🩷 Pink Pop",    ["🩷", "🩷", "⬜"]),
+    ("🟠 Sunset",      ["🟠", "🟡", "⬜"]),
+    ("💚 Emerald",     ["💚", "🟢", "⬜"]),
+    ("🤍 Cloud",       ["🤍", "🩶", "⬛"]),
+    ("💜 Lavender",    ["💜", "🟣", "⬜"]),
 ]
 
 # Animated spinner frames (rotates every update for a live feel)
@@ -160,11 +164,37 @@ EXTRA_LINES = [
 ]
 
 
-def choose_progress_style(percentage: float) -> str:
-    """Build a smooth gradient progress bar with a bright 'head' segment."""
-    style = random.choice(THEME_STYLES)[1]
+class ProgressSession:
+    """Keep the visual style and sticker sequence unique to one transfer."""
+
+    def __init__(self):
+        self.style_index = random.randrange(len(THEME_STYLES))
+        self.stickers = random.sample(PROGRESS_STICKERS, len(PROGRESS_STICKERS))
+        self.sticker_index = 0
+        self.last_update = None
+
+    def next_sticker(self) -> str:
+        if self.sticker_index >= len(self.stickers):
+            previous = self.stickers[-1]
+            self.stickers = random.sample(PROGRESS_STICKERS, len(PROGRESS_STICKERS))
+            if self.stickers[0] == previous:
+                self.stickers[0], self.stickers[1] = self.stickers[1], self.stickers[0]
+            self.sticker_index = 0
+        sticker = self.stickers[self.sticker_index]
+        self.sticker_index += 1
+        return sticker
+
+
+def new_progress_session() -> ProgressSession:
+    return ProgressSession()
+
+
+def choose_progress_style(percentage: float, style_index=None) -> str:
+    """Build a progress bar using one of twelve per-transfer visual styles."""
+    style_index = random.randrange(len(THEME_STYLES)) if style_index is None else style_index
+    style = THEME_STYLES[style_index][1]
     segments = 20
-    filled = int(round((percentage / 100) * segments))
+    filled = int(round((min(max(percentage, 0), 100) / 100) * segments))
     # gradient fill colours (everything except the last = empty marker)
     fills = style[:-1]
     empty = style[-1]
@@ -177,8 +207,10 @@ def choose_progress_style(percentage: float) -> str:
     return bar
 
 
-def choose_theme() -> str:
-    return random.choice(THEME_STYLES)[0]
+def choose_theme(style_index=None) -> str:
+    if style_index is None:
+        style_index = random.randrange(len(THEME_STYLES))
+    return THEME_STYLES[style_index][0]
 
 
 # Module-level spinner counter for animation between updates
@@ -238,23 +270,27 @@ async def progress_bar(current, total, *args):
         start = args[2] if len(args) > 2 else time.time()
         file_path = args[3] if len(args) > 3 else None
         source_link = args[4] if len(args) > 4 else None
+        session = args[5] if len(args) > 5 else new_progress_session()
 
         if message is None:
             return
 
         now = time.time()
+        if session.last_update is not None and now - session.last_update <= 1.0:
+            return
+
         diff = now - start if start else 1
-        percentage = 0 if total == 0 else (current * 100) / total
+        percentage = 0 if total == 0 else min((current * 100) / total, 100)
         speed = 0 if diff == 0 else current / diff
         eta_seconds = 0 if speed == 0 else (total - current) / speed
 
         filename = os.path.basename(file_path) if file_path else "Unknown"
         extension = os.path.splitext(filename)[1][1:] if "." in filename else "unknown"
         status = choose_status(ud_type, percentage)
-        theme = choose_theme()
-        bar = choose_progress_style(percentage)
+        theme = choose_theme(session.style_index)
+        bar = choose_progress_style(percentage, session.style_index)
         spinner = choose_spinner()
-        sticker = random.choice(PROGRESS_STICKERS)
+        sticker = session.next_sticker()
         extra_title, extra_line1, extra_line2 = choose_extra_text()
         link = clean_link(source_link)
 
@@ -294,12 +330,10 @@ async def progress_bar(current, total, *args):
             extra_line2=extra_line2,
         )
 
-        if not hasattr(progress_bar, "last_update") or (now - progress_bar.last_update) > 1.0:
-            await message.edit(text=text)
-            progress_bar.last_update = now
+        await message.edit(text=text)
+        session.last_update = now
     except Exception as e:
-        logger.error(f"Progress bar error: {e}")
-        pass
+        logger.exception("Progress bar update failed: %s", e)
 
 
 async def show_completion_ui(message, file_path, total_time, file_size):
@@ -323,9 +357,6 @@ By Radhey Kishan Ojha
     except Exception as e:
         logger.error(f"Completion UI error: {e}")
         pass
-
-# Initialize last_update attribute
-progress_bar.last_update = 0.0
 
 def humanbytes(size):
     if not size:
@@ -577,49 +608,90 @@ def hhmmss(seconds):
     return time.strftime('%H:%M:%S',time.gmtime(seconds))
 
 async def screenshot(video, duration, sender):
-    if os.path.exists(f'{sender}.jpg'):
-        return f'{sender}.jpg'
-    
-    # Check if ffmpeg is available
+    custom_thumbnail = f'{sender}.jpg'
+    if os.path.exists(custom_thumbnail):
+        frame = cv2.imread(custom_thumbnail)
+        if frame is not None:
+            return _store_thumbnail_frame(frame)
+        logger.warning("Saved thumbnail for user %s is not a readable image", sender)
+
+    temporary_output = tempfile.NamedTemporaryFile(prefix="thumbnail_", suffix=".jpg", delete=False)
+    thumbnail_path = temporary_output.name
+    temporary_output.close()
+    os.remove(thumbnail_path)
+
+    best_frame = None
+    best_brightness = -1
+    last_error = ""
     try:
-        ffmpeg_check = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        await ffmpeg_check.communicate()
-        ffmpeg_available = True
+        length = max(0, float(duration or 0))
+        timestamps = [length * fraction for fraction in (0.1, 0.35, 0.6, 0.85)]
+        if length == 0:
+            timestamps = [0, 1, 2, 3]
+        for timestamp in timestamps:
+            if os.path.exists(thumbnail_path):
+                os.remove(thumbnail_path)
+            process = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-ss", f"{timestamp:.3f}", "-i", video,
+                "-frames:v", "1", "-vf",
+                "scale=320:320:force_original_aspect_ratio=decrease",
+                "-q:v", "4", "-y", thumbnail_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await process.communicate()
+            last_error = stderr.decode(errors="replace").strip()
+            if process.returncode != 0 or not os.path.isfile(thumbnail_path):
+                continue
+            frame = cv2.imread(thumbnail_path)
+            if frame is None:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            brightness = cv2.mean(gray)[0]
+            if brightness > best_brightness:
+                best_frame = frame
+                best_brightness = brightness
+            if brightness >= 12:
+                break
     except FileNotFoundError:
-        ffmpeg_available = False
-    
-    if not ffmpeg_available:
-        # If ffmpeg is not available, use a default thumbnail or skip screenshot
-        # For now, we'll just return None and handle it in the caller
         logger.warning("ffmpeg not available, skipping screenshot generation")
         return None
-    
-    # Proceed with ffmpeg if available
-    time_stamp = hhmmss(int(duration)/2)
-    out = dt.now().isoformat("_", "seconds") + ".jpg"
-    cmd = ["ffmpeg",
-           "-ss",
-           f"{time_stamp}", 
-           "-i",
-           f"{video}",
-           "-frames:v",
-           "1", 
-           f"{out}",
-           "-y"
-          ]
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await process.communicate()
-    x = stderr.decode().strip()
-    y = stdout.decode().strip()
-    if os.path.isfile(out):
-        return out
-    else:
-        None  
+    except Exception:
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
+        raise
+
+    if thumbnail_path and os.path.exists(thumbnail_path):
+        os.remove(thumbnail_path)
+    if best_frame is not None:
+        return _store_thumbnail_frame(best_frame)
+
+    logger.warning("Could not extract a video thumbnail: %s", last_error)
+    return None
+
+
+def _store_thumbnail_frame(frame):
+    height, width = frame.shape[:2]
+    if not width or not height:
+        return None
+    scale = min(320 / width, 320 / height, 1)
+    if scale < 1:
+        frame = cv2.resize(
+            frame,
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    for quality in (85, 75, 65, 55, 45):
+        success, encoded = cv2.imencode(
+            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
+        )
+        if success and len(encoded) <= 200 * 1024:
+            output = tempfile.NamedTemporaryFile(prefix="thumbnail_", suffix=".jpg", delete=False)
+            try:
+                output.write(encoded.tobytes())
+                return output.name
+            finally:
+                output.close()
+    logger.warning("Could not encode a Telegram-sized thumbnail")
+    return None
