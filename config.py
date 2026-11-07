@@ -9,6 +9,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8564747078:AAF4rw9Fw7sBI-NCdCZgOvaUL2mI
 CHANNEL_ID = -1003818713803
 LOG_GROUP = -1005121908460
 CLONE_LOG_CHANNEL = -1003886456761
+# Optional YouTube Data API v3 key for /yt search; URL previews work without it.
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
 # Public channel where cloned media is also posted so users get an
 # MX Player / VLC streamable link (t.me/Link09660/MSGID)
 STREAM_CHANNEL = -1004332477626

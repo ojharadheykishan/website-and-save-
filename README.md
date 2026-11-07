@@ -21,6 +21,11 @@ This branch is purely based on `Pyrogram V2` with more stability And this is bas
 - **`stats`**: Display statistics and insights.
 - **`speedtest`**: Run a network speed test.
 - **`settings`**: Access and modify your settings.
+- **`yt`**: Preview a YouTube video link or search videos (search needs `YOUTUBE_API_KEY`).
+
+Use `/yt <YouTube video link>` for a title preview and official YouTube link. To search by
+keywords, set a YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
+This command does not download YouTube videos.
 
 ## Features:
 
