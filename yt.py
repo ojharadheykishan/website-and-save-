@@ -10,7 +10,8 @@ from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from safe_repo import app
-from config import YOUTUBE_API_KEY
+from config import OWNER_ID, YOUTUBE_API_KEY
+from safe_repo.core.media_links import add_youtube_catalog_entry, get_public_base_url
 
 logger = logging.getLogger(__name__)
 VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -109,7 +110,10 @@ async def youtube_command(_, message):
 
     video_id = parse_youtube_video_id(query)
     if video_id:
-        await _reply_with_preview(message, video_id)
+        if not message.from_user or message.from_user.id not in OWNER_ID:
+            await message.reply_text("Public website catalog mein videos add karne ki permission nahi hai.")
+            return
+        await _publish_youtube_embed(message, video_id)
         return
 
     if len(query) > 200:
@@ -172,7 +176,7 @@ async def youtube_command(_, message):
     )
 
 
-async def _reply_with_preview(message, video_id):
+async def _publish_youtube_embed(message, video_id):
     try:
         metadata = await asyncio.to_thread(_request_oembed, video_id)
     except (requests.RequestException, ValueError) as error:
@@ -182,13 +186,38 @@ async def _reply_with_preview(message, video_id):
         )
         return
 
+    base_url = get_public_base_url()
+    if urlparse(base_url).hostname in {"localhost", "127.0.0.1", "::1"}:
+        await message.reply_text(
+            "Website ka public URL configured nahi hai. Deployment mein `PUBLIC_BASE_URL` set karein, phir dobara try karein."
+        )
+        return
+
+    try:
+        result = await asyncio.to_thread(
+            add_youtube_catalog_entry,
+            video_id,
+            str(metadata.get("title") or "YouTube video"),
+            str(metadata.get("author_name") or "YouTube channel"),
+            base_url,
+        )
+    except (OSError, ValueError) as error:
+        logger.warning("Could not publish YouTube embed (%s)", type(error).__name__)
+        await message.reply_text(
+            "Video ko website catalog mein add nahi kar paye. Catalog storage check karke dobara try karein."
+        )
+        return
+
     title = html.escape(str(metadata.get("title") or "YouTube video")[:300])
     author = html.escape(str(metadata.get("author_name") or "YouTube channel")[:150])
-    link = f"https://www.youtube.com/watch?v={video_id}"
     await message.reply_text(
-        f"🎬 <b>{title}</b>\n👤 {author}\n\nYouTube par dekhne ke liye button dabayein.",
+        f"✅ <b>YouTube folder mein add ho gaya</b>\n\n"
+        f"🎬 {title}\n👤 {author}\n\n"
+        f"Website: {html.escape(result['player_url'])}\n"
+        f"Original video YouTube par hi play hoga; bot video download ya re-upload nahi karta."
+        + ("" if result["added"] else "\n\nYe video pehle se catalog mein tha."),
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("▶ Open on YouTube", url=link)]]
+            [[InlineKeyboardButton("▶ Website par dekhein", url=result["player_url"])]]
         ),
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,

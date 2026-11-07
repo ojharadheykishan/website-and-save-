@@ -21,11 +21,12 @@ This branch is purely based on `Pyrogram V2` with more stability And this is bas
 - **`stats`**: Display statistics and insights.
 - **`speedtest`**: Run a network speed test.
 - **`settings`**: Access and modify your settings.
-- **`yt`**: Preview a YouTube video link or search videos (search needs `YOUTUBE_API_KEY`).
+- **`yt`**: Add a YouTube link to the public website as an official embed, or search videos.
 
-Use `/yt <YouTube video link>` for a title preview and official YouTube link. To search by
-keywords, set a YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
-This command does not download YouTube videos.
+The bot owner can use `/yt <YouTube video link>` to add the link to the website's **YouTube**
+folder and get a website player URL. The page embeds the original YouTube player: playback
+still uses YouTube, and the bot does not download or re-upload the video. To search by keywords,
+set a YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
 
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to

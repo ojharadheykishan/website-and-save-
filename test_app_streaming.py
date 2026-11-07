@@ -55,3 +55,39 @@ def test_1080p_quality_endpoint_serves_variant(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.mimetype == "video/mp4"
+
+
+def test_youtube_study_watch_page_embeds_original_youtube_video(monkeypatch):
+    video = {
+        "token": "yt-abcdefghijk",
+        "source": "youtube",
+        "youtube_video_id": "abcdefghijk",
+        "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+        "title": "Study lesson",
+        "subject": "YouTube",
+        "category": "YouTube",
+        "description": "Folder: YouTube",
+        "stream_url": "",
+        "player_url": "https://example.com/study/watch/yt-abcdefghijk",
+    }
+    monkeypatch.setattr(app_module, "load_catalog_entries", lambda: [video])
+
+    response = app.test_client().get("/study/watch/yt-abcdefghijk")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert "https://www.youtube-nocookie.com/embed/abcdefghijk" in page
+    assert "Open original on YouTube" in page
+    assert "Open direct stream" not in page
+
+
+def test_youtube_study_watch_page_rejects_invalid_embed_id(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "load_catalog_entries",
+        lambda: [{"token": "yt-invalid", "source": "youtube", "youtube_video_id": "bad"}],
+    )
+
+    response = app.test_client().get("/study/watch/yt-invalid")
+
+    assert response.status_code == 404

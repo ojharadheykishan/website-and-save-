@@ -82,7 +82,8 @@ def home():
           .muted { color:#94a3b8; font-size:0.92rem; }
           .featured { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); margin-top:16px; }
           .featured-card { padding:16px; background:linear-gradient(135deg,#111827,#0f172a); border:1px solid rgba(148,163,184,0.2); border-radius:18px; }
-          .thumb { height:136px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; font-weight:700; color:white; margin-bottom:12px; background:linear-gradient(135deg,#7c3aed,#2563eb); }
+          .thumb { height:136px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; font-weight:700; color:white; margin-bottom:12px; background:linear-gradient(135deg,#7c3aed,#2563eb); overflow:hidden; }
+          .thumb img { width:100%; height:100%; object-fit:cover; }
           .section { margin-top:24px; }
           .subject-banner { padding:16px 18px; border-radius:16px; background:linear-gradient(135deg,#111827,#1e293b); border:1px solid rgba(148,163,184,0.2); margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
           .subject-banner a { color:#93c5fd; text-decoration:none; font-weight:600; }
@@ -148,7 +149,9 @@ def home():
               {% if featured %}
                 {% for item in featured %}
                   <div class="featured-card">
-                    <div class="thumb">{{ (item.subject or 'Study')[:2].upper() }}</div>
+                    <div class="thumb">
+                      {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy" />{% else %}{{ (item.subject or 'Study')[:2].upper() }}{% endif %}
+                    </div>
                     <strong>{{ item.title }}</strong>
                     <div class="muted">{{ item.subject }} · {{ item.category }}</div>
                     <div class="theme-note">Popular pick for quick revision and revision notes.</div>
@@ -202,7 +205,9 @@ def home():
                   <div class="video-grid">
                     {% for item in subject_videos[:6] %}
                       <div class="video-item">
-                        <div class="thumb">{{ subject.name[:2].upper() }}</div>
+                        <div class="thumb">
+                          {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy" />{% else %}{{ subject.name[:2].upper() }}{% endif %}
+                        </div>
                         <div>
                           <strong>{{ item.title }}</strong>
                           <div class="muted">{{ (item.description or 'Study video')[:120] }}{% if item.description and item.description|length > 120 %}...{% endif %}</div>
@@ -333,7 +338,7 @@ def study_home():
             <div class="card">
               <h3>Folders</h3>
               {% for folder in folders %}
-                <span class="pill">{{ folder.name }} ({{ folder.count }})</span>
+                <a class="pill" href="/study?folder={{ folder.name|urlencode }}" style="text-decoration:none; color:white;">{{ folder.name }} ({{ folder.count }})</a>
               {% endfor %}
             </div>
           </div>
@@ -441,7 +446,7 @@ def admin_delete_entry(token):
 
 @app.route('/study/watch/<token>')
 def study_watch_page(token):
-    """Watch page for a study video using the public stream and player links."""
+    """Render a public stream player or an official YouTube embed."""
     video = None
     for entry in load_catalog_entries():
         if str(entry.get("token")) == str(token):
@@ -449,6 +454,10 @@ def study_watch_page(token):
             break
 
     if not video:
+        abort(404)
+    if video.get("source") == "youtube" and not re.fullmatch(
+        r"[A-Za-z0-9_-]{11}", video.get("youtube_video_id") or ""
+    ):
         abort(404)
 
     related_videos = []
@@ -466,8 +475,8 @@ def study_watch_page(token):
         <style>
           body { margin:0; font-family:Inter, Arial, sans-serif; background:#020617; color:#f8fafc; }
           .wrap { max-width: 980px; margin:0 auto; padding:24px; }
-          .player { border-radius:18px; overflow:hidden; background:#111827; border:1px solid #334155; }
-          video { width:100%; height:auto; display:block; background:#000; }
+          .player { border-radius:18px; overflow:hidden; background:#111827; border:1px solid #334155; aspect-ratio:16/9; }
+          video, .player iframe { width:100%; height:100%; display:block; background:#000; border:0; }
           .meta { padding:16px; background:#111827; border-top:1px solid #334155; }
           .pill { display:inline-block; background:#2563eb; padding:4px 8px; border-radius:999px; font-size:0.8rem; margin-right:6px; }
           a { color:#93c5fd; }
@@ -476,9 +485,19 @@ def study_watch_page(token):
       <body>
         <div class="wrap">
           <div class="player">
+            {% if video.source == 'youtube' and video.youtube_video_id %}
+            <iframe
+              src="https://www.youtube-nocookie.com/embed/{{ video.youtube_video_id }}"
+              title="{{ video.title }}"
+              loading="lazy"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen></iframe>
+            {% else %}
             <video controls autoplay playsinline>
               <source src="{{ video.stream_url }}" />
             </video>
+            {% endif %}
           </div>
           <div class="meta">
             <h1>{{ video.title }}</h1>
@@ -488,9 +507,13 @@ def study_watch_page(token):
             </div>
             <p>{{ video.description or 'Study video from the Safe Repo media archive.' }}</p>
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin:12px 0;">
+              {% if video.source == 'youtube' and video.youtube_url %}
+              <a href="{{ video.youtube_url }}" target="_blank" rel="noopener noreferrer">Open original on YouTube</a>
+              {% else %}
               <a href="{{ video.player_url }}" target="_blank">Open player page</a>
               <a href="{{ video.stream_url }}" target="_blank">Open direct stream</a>
               <a href="{{ video.stream_url }}?download=1" target="_blank">Download</a>
+              {% endif %}
               <a href="javascript:void(0);" onclick="copyLink()">Copy link</a>
             </div>
             {% if related_videos %}

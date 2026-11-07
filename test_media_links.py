@@ -5,7 +5,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from safe_repo.core.media_links import save_stream_file, append_stream_link, read_stream_entries
+from safe_repo.core.media_links import (
+    add_youtube_catalog_entry,
+    save_stream_file,
+    append_stream_link,
+    read_stream_entries,
+)
 
 
 def test_save_stream_file_creates_public_stream_and_player_urls(tmp_path):
@@ -62,3 +67,50 @@ def test_append_stream_link_stores_catalog_entry(tmp_path):
     assert len(entries) == 1
     assert entries[0]["subject"] == "Movie"
     assert entries[0]["token"] == "demo"
+
+
+def test_add_youtube_catalog_entry_is_public_and_idempotent(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+
+    first = add_youtube_catalog_entry(
+        "abcdefghijk",
+        "Study lesson",
+        "Teacher",
+        base_url="https://study.example",
+        catalog_path=str(catalog_path),
+    )
+    second = add_youtube_catalog_entry(
+        "abcdefghijk",
+        "Changed title",
+        "Different channel",
+        base_url="https://study.example",
+        catalog_path=str(catalog_path),
+    )
+
+    entries = read_stream_entries(catalog_path=str(catalog_path))
+    assert first["added"] is True
+    assert second["added"] is False
+    assert len(entries) == 1
+    assert entries[0]["source"] == "youtube"
+    assert entries[0]["youtube_video_id"] == "abcdefghijk"
+    assert entries[0]["description"].startswith("Folder: YouTube")
+    assert entries[0]["player_url"] == "https://study.example/study/watch/yt-abcdefghijk"
+
+
+def test_add_youtube_catalog_entry_does_not_overwrite_invalid_catalog(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text("{invalid", encoding="utf-8")
+
+    try:
+        add_youtube_catalog_entry(
+            "abcdefghijk",
+            "Study lesson",
+            "Teacher",
+            catalog_path=str(catalog_path),
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Invalid catalog content must not be overwritten")
+
+    assert catalog_path.read_text(encoding="utf-8") == "{invalid"

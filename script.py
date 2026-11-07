@@ -182,9 +182,9 @@ CMD_HELP_TXT = """
  🔹 /cancel - Stop current batch processing
     Usage: /cancel
 
- 🔹 /yt - Preview a YouTube link or search videos
+ 🔹 /yt - Add a YouTube embed to the public website or search
     Usage: /yt <YouTube video link> or /yt <search words>
-    Keyword search requires the YOUTUBE_API_KEY environment variable
+    Website publishing is owner-only; keyword search needs YOUTUBE_API_KEY
 
  🔹 /archive - Save an authorized video to your configured study group
     Usage: Reply to a video with /archive, or provide a direct HTTPS video-file URL

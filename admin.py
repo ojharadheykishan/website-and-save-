@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from flask import request, session, redirect, render_template_string, abort
 from safe_repo.web.study import load_catalog_entries
+from safe_repo.core.media_links import get_catalog_path
 
 ADMIN_USERNAME = os.environ.get("STUDY_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("STUDY_ADMIN_PASSWORD", "admin123")
@@ -12,10 +13,7 @@ ADMIN_PASSWORD = os.environ.get("STUDY_ADMIN_PASSWORD", "admin123")
 def _get_catalog_path(catalog_path: Optional[str] = None) -> str:
     if catalog_path:
         return str(Path(catalog_path).expanduser())
-    env_path = os.environ.get("STREAM_CATALOG_FILE")
-    if env_path:
-        return str(Path(env_path).expanduser())
-    return str(Path(__file__).resolve().parent.parent / "core" / "mongo" / "stream_catalog.json")
+    return get_catalog_path()
 
 
 def _load_entries(catalog_path: Optional[str] = None) -> List[Dict[str, Any]]:

@@ -1,19 +1,15 @@
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
+
+from safe_repo.core.media_links import get_catalog_path
 
 
 def _get_catalog_path(catalog_path: Optional[str] = None) -> str:
     if catalog_path:
         return str(Path(catalog_path).expanduser())
-
-    env_path = os.environ.get("STREAM_CATALOG_FILE")
-    if env_path:
-        return str(Path(env_path).expanduser())
-
-    return str(Path(__file__).resolve().parent.parent / "core" / "mongo" / "stream_catalog.json")
+    return get_catalog_path()
 
 
 def _read_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -84,6 +80,10 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
         folder_name = _extract_folder_name(description)
         stream_url = str(raw_entry.get("stream_url") or "").strip()
         player_url = str(raw_entry.get("player_url") or "").strip()
+        source = str(raw_entry.get("source") or "").strip().lower()
+        youtube_video_id = str(raw_entry.get("youtube_video_id") or "").strip()
+        if source == "youtube" and youtube_video_id and not player_url:
+            player_url = _build_watch_url(token)
 
         entries.append(
             {
@@ -98,6 +98,10 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "featured": bool(raw_entry.get("featured")),
                 "trending": bool(raw_entry.get("trending")),
                 "views": int(raw_entry.get("views") or 0),
+                "source": source,
+                "youtube_video_id": youtube_video_id,
+                "youtube_url": str(raw_entry.get("youtube_url") or "").strip(),
+                "thumbnail_url": str(raw_entry.get("thumbnail_url") or "").strip(),
                 "player_url": player_url,
                 "stream_url": stream_url,
                 "watch_url": _build_watch_url(token),

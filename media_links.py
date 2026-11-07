@@ -1,12 +1,15 @@
 import json
 import os
 import shutil
+import tempfile
+import threading
 import uuid
 from datetime import datetime as dt
 from pathlib import Path
 from typing import Optional, Dict, List
 
 _STREAM_CACHE_DIR = None
+_CATALOG_WRITE_LOCK = threading.Lock()
 
 
 def _get_shared_repo_dir():
@@ -154,6 +157,83 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
         json.dump(entries, handle, indent=2, ensure_ascii=False)
 
     return str(archive_file)
+
+
+def add_youtube_catalog_entry(video_id, title, channel, base_url=None, catalog_path=None):
+    """Add an official YouTube embed to the public study catalog without downloading it."""
+    video_id = str(video_id or "").strip()
+    if len(video_id) != 11 or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for character in video_id):
+        raise ValueError("Invalid YouTube video ID.")
+
+    catalog_file = Path(get_catalog_path(catalog_path))
+    catalog_file.parent.mkdir(parents=True, exist_ok=True)
+    token = f"yt-{video_id}"
+    player_url = f"{(base_url or get_public_base_url()).rstrip('/')}/study/watch/{token}"
+    stamp = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = {
+        "timestamp": stamp,
+        "date": dt.now().strftime("%Y-%m-%d"),
+        "label": "youtube_embed",
+        "source": "youtube",
+        "youtube_video_id": video_id,
+        "youtube_url": f"https://www.youtube.com/watch?v={video_id}",
+        "thumbnail_url": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+        "subject": "YouTube",
+        "category": "YouTube",
+        "description": f"Folder: YouTube\nChannel: {str(channel or 'YouTube')[:150]}",
+        "title": str(title or "YouTube video")[:300],
+        "token": token,
+        "player_url": player_url,
+        "stream_url": "",
+    }
+
+    with _CATALOG_WRITE_LOCK:
+        if catalog_file.exists():
+            try:
+                entries = json.loads(catalog_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ValueError("The study catalog could not be read; refusing to overwrite it.") from error
+            if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
+                raise ValueError("The study catalog has an unsupported format.")
+        else:
+            entries = []
+
+        for existing in entries:
+            if existing.get("source") == "youtube" and existing.get("youtube_video_id") == video_id:
+                existing_token = str(existing.get("token") or token)
+                existing_url = str(existing.get("player_url") or player_url)
+                return {
+                    "token": existing_token,
+                    "player_url": existing_url,
+                    "added": False,
+                }
+
+        entries.append(entry)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=catalog_file.parent,
+                prefix=f".{catalog_file.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = handle.name
+                json.dump(entries, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, catalog_file)
+        except OSError:
+            if temporary_path and os.path.exists(temporary_path):
+                os.remove(temporary_path)
+            raise
+
+    return {
+        "token": token,
+        "player_url": player_url,
+        "added": True,
+    }
 
 
 def read_stream_entries(catalog_path=None):
