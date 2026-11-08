@@ -91,3 +91,41 @@ def test_youtube_study_watch_page_rejects_invalid_embed_id(monkeypatch):
     response = app.test_client().get("/study/watch/yt-invalid")
 
     assert response.status_code == 404
+
+
+def test_telegram_fallback_watch_page_embeds_media_on_website(monkeypatch):
+    video = {
+        "token": "tg-1234567890abcdef12345678",
+        "source": "telegram",
+        "telegram_url": "https://t.me/Link09660/2764?embed=1",
+        "title": "Large video",
+        "subject": "Science",
+        "category": "Class 10",
+        "description": "Large public video",
+        "stream_url": "",
+        "player_url": "https://example.com/study/watch/tg-1234567890abcdef12345678",
+    }
+    monkeypatch.setattr(app_module, "load_catalog_entries", lambda: [video])
+
+    response = app.test_client().get(f"/study/watch/{video['token']}")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert "https://t.me/Link09660/2764?embed=1" in page
+    assert "Open website player" in page
+
+
+def test_telegram_watch_page_rejects_external_embed_url(monkeypatch):
+    video = {
+        "token": "tg-invalid",
+        "source": "telegram",
+        "telegram_url": "https://evil.example/stream/1?embed=1",
+        "title": "Invalid video",
+        "subject": "General",
+        "category": "General",
+    }
+    monkeypatch.setattr(app_module, "load_catalog_entries", lambda: [video])
+
+    response = app.test_client().get("/study/watch/tg-invalid")
+
+    assert response.status_code == 404

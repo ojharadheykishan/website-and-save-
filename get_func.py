@@ -21,7 +21,6 @@ from safe_repo.core.func import (
     choose_status, choose_extra_text, convert, get_link, get_seconds,
     new_progress_session,
 )
-from safe_repo.core.media_links import append_stream_link, save_stream_file
 from safe_repo.core.mongo import db
 from config import LOG_GROUP, CLONE_LOG_CHANNEL
 
@@ -236,21 +235,15 @@ async def get_msg(
                                     sender, forwarded, file
                                 )
                             else:
-                                await share_stream_link(sender, forwarded)
-                                await app.send_message(
-                                    sender,
-                                    "✅ Media forwarded. A website player link could not "
-                                    "be generated because the media copy was unavailable.",
+                                await trigger_stream_link_notifications(
+                                    sender, forwarded, None
                                 )
                         except Exception as link_error:
                             logger.exception(
                                 "Forwarded media link generation failed: %s", link_error
                             )
-                            await share_stream_link(sender, forwarded)
-                            await app.send_message(
-                                sender,
-                                "✅ Media forwarded, but its website player link could "
-                                "not be generated.",
+                            await trigger_stream_link_notifications(
+                                sender, forwarded, None
                             )
                         try:
                             await userbot.send_message(
@@ -415,10 +408,9 @@ async def get_msg(
                     # Also copy to CLONE_LOG_CHANNEL
                     try:
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
-                        # Extra: post to public stream channel and send user a stream link
-                        asyncio.create_task(trigger_stream_link_notifications(sender, safe_repo, file))
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
+                    await trigger_stream_link_notifications(sender, safe_repo, file)
                     
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "PHOTO CLONE", sender, file, final_caption))
@@ -515,10 +507,9 @@ async def get_msg(
                     # Also copy to CLONE_LOG_CHANNEL
                     try:
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
-                        # Extra: post to public stream channel and send user a stream link
-                        asyncio.create_task(trigger_stream_link_notifications(sender, safe_repo, file))
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
+                    await trigger_stream_link_notifications(sender, safe_repo, file)
 
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "DOCUMENT CLONE", sender, file, caption))
@@ -595,10 +586,9 @@ async def get_msg(
                     # Also copy to CLONE_LOG_CHANNEL
                     try:
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
-                        # Extra: post to public stream channel and send user a stream link
-                        asyncio.create_task(trigger_stream_link_notifications(sender, safe_repo, file))
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
+                    await trigger_stream_link_notifications(sender, safe_repo, file)
 
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "VIDEO CLONE", sender, file, caption))
@@ -654,10 +644,9 @@ async def get_msg(
                     # Also copy to CLONE_LOG_CHANNEL
                     try:
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
-                        # Extra: post to public stream channel and send user a stream link
-                        asyncio.create_task(trigger_stream_link_notifications(sender, safe_repo, file))
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
+                    await trigger_stream_link_notifications(sender, safe_repo, file)
 
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "MEDIA CLONE", sender, file, caption))
@@ -723,61 +712,27 @@ async def get_msg(
             return "retry"
 
 
-async def notify_stream_links(sender, file_path):
-    """Create a public stream URL for the uploaded file and send it to the user."""
-    try:
-        if not file_path or not os.path.exists(file_path):
-            return
-
-        result = await asyncio.to_thread(save_stream_file, file_path)
-        if not result:
-            await app.send_message(
-                chat_id=sender,
-                text="⚠️ Website player link couldn't be created for this file. "
-                     "It may exceed the configured stream-cache limit.",
-            )
-            return
-
-        append_stream_link(result['player_url'], result['stream_url'], label="clone_upload")
-
-        await app.send_message(
-            chat_id=sender,
-            text=(
-                "🎬 **Stream link ready**\n\n"
-                f"📁 File: `{os.path.basename(file_path)}`\n"
-                f"🌐 Website: {result['player_url']}\n"
-                f"🔗 Direct stream URL: {result['stream_url']}\n\n"
-                "Is link ko VLC / MX Player me paste karke play kar sakte ho."
-            ),
-        )
-    except Exception as e:
-        logger.error(f"notify_stream_links error: {e}")
+async def notify_stream_links(sender, file_path, result_msg=None):
+    """Generate the website-player response for a completed media transfer."""
+    await share_stream_link(sender, result_msg, file_path)
 
 
-async def share_stream_link(sender, result_msg):
-    """Extra feature: post the uploaded message to the public stream channel
-    and send the user a MX Player / VLC streamable link. Does not modify any
-    existing upload logic - it only adds an extra message.
-    """
+async def share_stream_link(sender, result_msg, file_path=None):
+    """Send one consistent website-player link for a copied or uploaded media message."""
     try:
         from safe_repo.modules.stream import send_stream_link
         if result_msg is not None:
-            asyncio.create_task(send_stream_link(sender, result_msg))
+            await send_stream_link(sender, result_msg, media_file=file_path)
     except Exception as e:
         logger.error(f"share_stream_link error: {e}")
 
 
 async def trigger_stream_link_notifications(sender, result_msg, file_path):
-    """Trigger both stream-link notification pathways independently."""
+    """Generate one website-player response after a media transfer."""
     try:
-        await share_stream_link(sender, result_msg)
+        await notify_stream_links(sender, file_path, result_msg=result_msg)
     except Exception as e:
-        logger.error(f"share_stream_link trigger failed: {e}")
-
-    try:
-        await notify_stream_links(sender, file_path)
-    except Exception as e:
-        logger.error(f"notify_stream_links trigger failed: {e}")
+        logger.exception("Website player link generation failed: %s", e)
 
 
 async def copy_message_with_chat_id(
@@ -865,8 +820,8 @@ async def copy_message_with_chat_id(
             except Exception as e:
                 logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
 
-            # Extra: post to public stream channel and send user a stream link
-            asyncio.create_task(share_stream_link(sender, result))
+            if msg.media:
+                await share_stream_link(sender, result)
 
         if msg.pinned_message:
             try:

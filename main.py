@@ -44,8 +44,11 @@ logger = logging.getLogger(__name__)
     filters.regex(r'https?://[^\s]+')
     & ~filters.command(["batch", "yt"])
     & ~filters.reply
+    & ~filters.media
 )
 async def single_link(_, message):
+    if getattr(message, "media", None):
+        return
     if not message.from_user or message.chat.id != message.from_user.id:
         await message.reply_text("Please send media links in a private chat with the bot.")
         return

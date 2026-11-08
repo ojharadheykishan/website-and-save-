@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from safe_repo.core.media_links import (
     add_youtube_catalog_entry,
+    add_telegram_stream_entry,
     save_stream_file,
     append_stream_link,
     find_stream_entry_by_content_hash,
@@ -103,6 +104,36 @@ def test_public_base_url_detection(monkeypatch):
 
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://media.example")
     assert is_public_base_url_configured() is True
+
+
+def test_telegram_stream_entry_creates_website_player_and_deduplicates(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    first = add_telegram_stream_entry(
+        "https://t.me/streamchannel/2764?embed=1",
+        "Large video",
+        description="Large public video",
+        subject="Science",
+        category="Class 10",
+        content_hash="telegram:file-unique-id",
+        base_url="https://example.com",
+        catalog_path=str(catalog_path),
+    )
+    duplicate = add_telegram_stream_entry(
+        "https://t.me/streamchannel/9999?embed=1",
+        "Same large video",
+        content_hash="telegram:file-unique-id",
+        base_url="https://example.com",
+        catalog_path=str(catalog_path),
+    )
+
+    assert first["player_url"].startswith("https://example.com/study/watch/tg-")
+    assert first["added"] is True
+    assert duplicate["duplicate"] is True
+    assert duplicate["player_url"] == first["player_url"]
+    entries = read_stream_entries(catalog_path=str(catalog_path))
+    assert len(entries) == 1
+    assert entries[0]["source"] == "telegram"
+    assert entries[0]["telegram_url"] == "https://t.me/streamchannel/2764?embed=1"
 
 
 def test_add_youtube_catalog_entry_is_public_and_idempotent(tmp_path):

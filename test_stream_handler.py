@@ -71,6 +71,22 @@ def test_link_progress_bar_animates_its_own_sticker_and_spinner():
     assert "📤" not in first
 
 
+def test_website_link_response_never_uses_the_old_telegram_stream_message():
+    text = stream_module.build_stream_reply_text(
+        {
+            "source": "telegram",
+            "player_url": "https://example.com/study/watch/tg-token",
+            "stream_url": "",
+        }
+    )
+
+    assert "✅ **Stream link ready**" in text
+    assert "https://example.com/study/watch/tg-token" in text
+    assert "Direct link:" not in text
+    assert "https://t.me/" not in text
+    assert "Stream Link:" not in text
+
+
 def test_link_failure_message_includes_the_actual_reason():
     text = stream_module.format_failure_message("Bot cannot post in the stream channel.")
 
@@ -82,6 +98,9 @@ def test_large_media_uses_public_channel_fallback(tmp_path, monkeypatch):
     media_file = tmp_path / "large.mp4"
     media_file.write_bytes(b"large")
     channel_posts = []
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
+    monkeypatch.setenv("STREAM_CATALOG_FILE", str(tmp_path / "catalog.json"))
+    monkeypatch.setenv("STREAM_LINKS_FILE", str(tmp_path / "links.txt"))
 
     async def fake_post(message):
         channel_posts.append(message)
@@ -97,14 +116,16 @@ def test_large_media_uses_public_channel_fallback(tmp_path, monkeypatch):
 
     result = asyncio.run(stream_module.build_public_stream_link(incoming, str(media_file)))
 
-    assert result["source"] == "channel"
+    assert result["source"] == "telegram"
+    assert result["player_url"] == f"https://example.com/study/watch/{result['token']}"
+    assert result["telegram_url"] == "https://t.me/stream/99?embed=1"
     assert "MAX_STREAM_FILE_SIZE_MB" in result["fallback_reason"]
     assert channel_posts == [incoming]
 
 
 def test_failed_channel_fallback_reports_public_setup_problem(monkeypatch):
     async def fake_post(_message):
-        return None
+        raise AssertionError("Do not post to a channel without a public website URL.")
 
     monkeypatch.setattr(stream_module, "is_public_base_url_configured", lambda: False)
     monkeypatch.setattr(stream_module, "post_to_stream_channel", fake_post)
@@ -113,7 +134,6 @@ def test_failed_channel_fallback_reports_public_setup_problem(monkeypatch):
         asyncio.run(stream_module.build_public_stream_link(object()))
     except RuntimeError as error:
         assert "PUBLIC_BASE_URL is not configured" in str(error)
-        assert "posting access" in str(error)
     else:
         raise AssertionError("Failed fallback should explain why link creation failed.")
 
@@ -148,10 +168,10 @@ def test_download_failure_still_tries_channel_link_fallback(monkeypatch, tmp_pat
         assert message.video.file_unique_id == "telegram-file-unique-id"
         assert media_file is None
         return {
-            "source": "channel",
-            "player_url": "https://t.me/stream/99?embed=1",
-            "stream_url": "https://t.me/stream/99",
-            "token": None,
+            "source": "telegram",
+            "player_url": "https://example.com/study/watch/tg-token",
+            "stream_url": "",
+            "token": "tg-token",
         }
 
     async def fake_archive(*_args, **_kwargs):
@@ -180,9 +200,10 @@ def test_download_failure_still_tries_channel_link_fallback(monkeypatch, tmp_pat
 
     asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
 
-    assert appended == ["telegram:telegram-file-unique-id"]
+    assert appended == []
     assert any("Trying channel fallback" in update for update in updates)
-    assert any("https://t.me/stream/99" in update for update in updates)
+    assert any("https://example.com/study/watch/tg-token" in update for update in updates)
+    assert not any("https://t.me/stream/" in update for update in updates)
 
 
 def test_duplicate_media_returns_existing_link_without_reposting(monkeypatch):
@@ -228,24 +249,17 @@ def test_duplicate_media_returns_existing_link_without_reposting(monkeypatch):
     assert any("https://example.com/player/existing" in update for update in updates)
 
 
-def test_trigger_stream_link_notifications_schedules_both_paths(monkeypatch):
+def test_trigger_stream_link_notifications_uses_one_website_response(monkeypatch):
     calls = []
 
-    async def fake_share(sender, result_msg):
-        calls.append(("share", sender, result_msg))
-
-    async def fake_notify(sender, file_path):
-        calls.append(("notify", sender, file_path))
+    async def fake_share(sender, result_msg, file_path=None):
+        calls.append(("share", sender, result_msg, file_path))
 
     monkeypatch.setattr("safe_repo.core.get_func.share_stream_link", fake_share)
-    monkeypatch.setattr("safe_repo.core.get_func.notify_stream_links", fake_notify)
 
     asyncio.run(trigger_stream_link_notifications(123, "message", "/tmp/file"))
 
-    assert calls == [
-        ("share", 123, "message"),
-        ("notify", 123, "/tmp/file"),
-    ]
+    assert calls == [("share", 123, "message", "/tmp/file")]
 
 
 def test_download_media_payload_reports_transfer_progress(monkeypatch):
@@ -306,6 +320,7 @@ def test_forwarded_media_generates_a_website_link(tmp_path, monkeypatch):
 
     async def fake_build_link(*args, **kwargs):
         return {
+            "source": "cache",
             "player_url": "https://example.com/player/video",
             "stream_url": "https://example.com/stream/video",
             "token": "video",
@@ -343,6 +358,60 @@ def test_forwarded_media_generates_a_website_link(tmp_path, monkeypatch):
 
     assert any("https://example.com/player/video" in update for update in updates)
     assert not media_file.exists()
+
+
+def test_stream_link_sender_returns_only_the_website_player_link(monkeypatch):
+    sent = []
+    edited = []
+
+    class IncomingMessage:
+        video = object()
+
+    class StatusMessage:
+        id = 5
+
+    async def fake_send_message(**kwargs):
+        sent.append(kwargs)
+        return StatusMessage()
+
+    async def fake_download(*_args, **_kwargs):
+        return None
+
+    async def fake_prepare(*_args, **_kwargs):
+        return {
+            "source": "telegram",
+            "player_url": "https://example.com/study/watch/tg-player",
+            "stream_url": "",
+            "study_url": None,
+        }
+
+    async def fake_edit_message_text(_chat_id, _message_id, text):
+        edited.append(text)
+
+    monkeypatch.setattr(stream_module.app, "send_message", fake_send_message)
+    monkeypatch.setattr(stream_module.app, "edit_message_text", fake_edit_message_text)
+    monkeypatch.setattr(stream_module, "download_media_payload", fake_download)
+    monkeypatch.setattr(stream_module, "prepare_media_link", fake_prepare)
+
+    asyncio.run(stream_module.send_stream_link(123, IncomingMessage()))
+
+    assert len(sent) == 1
+    assert "✅ **Stream link ready**" in edited[-1]
+    assert "https://example.com/study/watch/tg-player" in edited[-1]
+    assert "Direct link:" not in edited[-1]
+    assert "https://t.me/" not in edited[-1]
+
+
+def test_video_caption_url_does_not_enter_login_required_link_handler():
+    import main as bot_main
+
+    class VideoMessage:
+        media = object()
+
+        async def reply_text(self, *_args, **_kwargs):
+            raise AssertionError("A video message must not enter link-cloning login flow.")
+
+    asyncio.run(bot_main.single_link(None, VideoMessage()))
 
 
 def test_private_message_forward_uses_saved_output_destination(monkeypatch):

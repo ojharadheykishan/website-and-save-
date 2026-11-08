@@ -1,5 +1,7 @@
 import json
+import hashlib
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -245,6 +247,118 @@ def find_stream_entry_by_content_hash(content_hash, catalog_path=None):
             (entry for entry in entries if entry.get("content_hash") == content_hash),
             None,
         )
+
+
+def add_telegram_stream_entry(
+    telegram_url,
+    title,
+    description="",
+    subject="General",
+    category="General",
+    date=None,
+    content_hash=None,
+    base_url=None,
+    catalog_path=None,
+):
+    """Create a website watch page backed by a public Telegram video embed."""
+    parsed_url = urlparse(str(telegram_url or ""))
+    if (
+        parsed_url.scheme != "https"
+        or parsed_url.hostname != "t.me"
+        or not re.fullmatch(r"/[A-Za-z0-9_]{5,32}/\d+", parsed_url.path)
+    ):
+        raise ValueError("Invalid public Telegram video URL.")
+
+    base_url = get_public_base_url(base_url)
+    base_hostname = (urlparse(base_url).hostname or "").lower()
+    if base_hostname in {"", "localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        raise ValueError("PUBLIC_BASE_URL is not configured.")
+
+    token = f"tg-{hashlib.sha256(telegram_url.encode('utf-8')).hexdigest()[:24]}"
+    player_url = f"{base_url}/study/watch/{token}"
+    catalog_file = Path(get_catalog_path(catalog_path))
+    catalog_file.parent.mkdir(parents=True, exist_ok=True)
+    stamp = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = {
+        "timestamp": stamp,
+        "date": date or dt.now().strftime("%Y-%m-%d"),
+        "label": "telegram_stream",
+        "source": "telegram",
+        "telegram_url": telegram_url,
+        "subject": subject or "General",
+        "category": category or "General",
+        "description": description or "",
+        "title": str(title or "Telegram video")[:300],
+        "token": token,
+        "player_url": player_url,
+        "stream_url": "",
+    }
+    if content_hash:
+        entry["content_hash"] = content_hash
+
+    with _CATALOG_WRITE_LOCK:
+        if catalog_file.exists():
+            try:
+                entries = json.loads(catalog_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ValueError("The study catalog could not be read; refusing to overwrite it.") from error
+            if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
+                raise ValueError("The study catalog has an unsupported format.")
+        else:
+            entries = []
+
+        if content_hash:
+            for existing in entries:
+                if existing.get("content_hash") == content_hash:
+                    return {
+                        "token": existing.get("token", token),
+                        "player_url": existing.get("player_url", player_url),
+                        "telegram_url": existing.get("telegram_url", telegram_url),
+                        "added": False,
+                        "duplicate": True,
+                    }
+
+        for existing in entries:
+            if (
+                existing.get("source") == "telegram"
+                and existing.get("telegram_url") == telegram_url
+            ):
+                return {
+                    "token": existing.get("token", token),
+                    "player_url": existing.get("player_url", player_url),
+                    "telegram_url": telegram_url,
+                    "added": False,
+                    "duplicate": True,
+                }
+
+        entries.append(entry)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=catalog_file.parent,
+                prefix=f".{catalog_file.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = handle.name
+                json.dump(entries, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, catalog_file)
+        except OSError:
+            if temporary_path and os.path.exists(temporary_path):
+                os.remove(temporary_path)
+            raise
+
+    return {
+        "token": token,
+        "player_url": player_url,
+        "telegram_url": telegram_url,
+        "added": True,
+        "duplicate": False,
+    }
 
 
 def add_youtube_catalog_entry(video_id, title, channel, base_url=None, catalog_path=None):

@@ -101,6 +101,7 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "source": source,
                 "youtube_video_id": youtube_video_id,
                 "youtube_url": str(raw_entry.get("youtube_url") or "").strip(),
+                "telegram_url": str(raw_entry.get("telegram_url") or "").strip(),
                 "thumbnail_url": str(raw_entry.get("thumbnail_url") or "").strip(),
                 "player_url": player_url,
                 "stream_url": stream_url,

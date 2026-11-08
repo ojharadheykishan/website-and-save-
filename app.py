@@ -459,6 +459,15 @@ def study_watch_page(token):
         r"[A-Za-z0-9_-]{11}", video.get("youtube_video_id") or ""
     ):
         abort(404)
+    if video.get("source") == "telegram":
+        telegram_url = urlsplit(video.get("telegram_url") or "")
+        if (
+            telegram_url.scheme != "https"
+            or telegram_url.hostname != "t.me"
+            or not re.fullmatch(r"/[A-Za-z0-9_]{5,32}/\d+", telegram_url.path)
+            or "embed=1" not in telegram_url.query.split("&")
+        ):
+            abort(404)
 
     related_videos = []
     for entry in load_catalog_entries():
@@ -493,6 +502,14 @@ def study_watch_page(token):
               referrerpolicy="strict-origin-when-cross-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowfullscreen></iframe>
+            {% elif video.source == 'telegram' and video.telegram_url %}
+            <iframe
+              src="{{ video.telegram_url|e }}"
+              title="{{ video.title|e }}"
+              loading="lazy"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowfullscreen></iframe>
             {% else %}
             <video controls autoplay playsinline>
               <source src="{{ video.stream_url }}" />
@@ -509,6 +526,8 @@ def study_watch_page(token):
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin:12px 0;">
               {% if video.source == 'youtube' and video.youtube_url %}
               <a href="{{ video.youtube_url }}" target="_blank" rel="noopener noreferrer">Open original on YouTube</a>
+              {% elif video.source == 'telegram' %}
+              <a href="{{ video.player_url }}" target="_blank" rel="noopener noreferrer">Open website player</a>
               {% else %}
               <a href="{{ video.player_url }}" target="_blank">Open player page</a>
               <a href="{{ video.stream_url }}" target="_blank">Open direct stream</a>
