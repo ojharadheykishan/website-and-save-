@@ -41,7 +41,7 @@ async def single_link(_, message):
         return
     user_id = message.from_user.id
     
-    link = get_link(message.text) 
+    link = get_message_link(message)
     
     userbot = None
     try:

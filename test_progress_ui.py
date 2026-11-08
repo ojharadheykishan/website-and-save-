@@ -8,6 +8,8 @@ from safe_repo.core.func import (
     PROGRESS_STICKERS,
     THEME_STYLES,
     ProgressSession,
+    get_link,
+    get_message_link,
     progress_bar,
     screenshot,
 )
@@ -51,6 +53,23 @@ def test_transfer_progress_edits_message_and_shows_sticker():
 
     assert message.text is not None
     assert session.stickers[0] in message.text
+
+
+def test_link_extraction_handles_missing_text_and_caption_links():
+    class Message:
+        text = None
+        caption = "Video link: https://t.me/example/123"
+
+    assert get_link(None) is False
+    assert get_message_link(Message()) == "https://t.me/example/123"
+
+
+def test_link_extraction_returns_false_for_empty_message():
+    class Message:
+        text = None
+        caption = None
+
+    assert get_message_link(Message()) is False
 
 
 def test_custom_thumbnail_is_resized_and_reencoded(tmp_path, monkeypatch):

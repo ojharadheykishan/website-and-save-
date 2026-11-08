@@ -411,9 +411,12 @@ async def userbot_join(userbot, invite_link):
 
 
 def get_link(string):
+    if not isinstance(string, str) or not string.strip():
+        return False
+
     # Handles https://, http://, www., bare t.me, username.t.me, and tg:// / tg: deep links
     regex = r"(?i)\b((?:https?://|tg://|tg:|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
-    url = re.findall(regex,string)   
+    url = re.findall(regex, string)
     try:
         link = [x[0] for x in url][0]
         if link:
@@ -422,6 +425,13 @@ def get_link(string):
             return False
     except Exception:
         return False
+
+
+def get_message_link(message):
+    """Extract a link from a message's text or media caption."""
+    return get_link(
+        getattr(message, "text", None) or getattr(message, "caption", None)
+    )
 
 
 def parse_telegram_link(link: str):
