@@ -130,7 +130,15 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         subject_name = str(video.get("subject", "") or "").lower()
         description = str(video.get("description", "") or "").lower()
         folder_name = str(video.get("folder") or "General").lower()
-        if search_query and search_query not in title and search_query not in subject_name and search_query not in description:
+        category_name = str(video.get("category") or "").lower()
+        if (
+            search_query
+            and search_query not in title
+            and search_query not in subject_name
+            and search_query not in description
+            and search_query not in folder_name
+            and search_query not in category_name
+        ):
             continue
         if subject_filter and subject_filter != str(video.get("subject", "")).lower():
             continue

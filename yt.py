@@ -5,7 +5,7 @@ import re
 from urllib.parse import parse_qs, urlparse
 
 import requests
-from pyrogram import filters
+from pyrogram import StopPropagation, filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -174,6 +174,25 @@ async def youtube_command(_, message):
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
+
+
+async def handle_youtube_url(message, value):
+    """Convert a direct YouTube URL into its public website-player link."""
+    video_id = parse_youtube_video_id(value)
+    if not video_id:
+        return False
+    if not message.from_user or message.from_user.id not in OWNER_ID:
+        await message.reply_text("Public website catalog mein videos add karne ki permission nahi hai.")
+        return True
+    await _publish_youtube_embed(message, video_id)
+    return True
+
+
+@app.on_message(filters.regex(r"https?://[^\s]+") & filters.private, group=-1)
+async def direct_youtube_link(_, message):
+    """Handle a YouTube URL before the Telegram-message-link handler."""
+    if await handle_youtube_url(message, message.text or message.caption):
+        raise StopPropagation
 
 
 async def _publish_youtube_embed(message, video_id):

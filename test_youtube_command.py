@@ -1,5 +1,8 @@
 import asyncio
 
+import pytest
+from pyrogram import StopPropagation
+
 from safe_repo.modules import yt
 
 
@@ -14,6 +17,42 @@ def test_parse_youtube_rejects_non_youtube_and_malformed_urls():
     assert yt.parse_youtube_video_id("https://example.com/watch?v=abcdefghijk") is None
     assert yt.parse_youtube_video_id("https://youtube.com:bad/watch?v=abcdefghijk") is None
     assert yt.parse_youtube_video_id("http://youtube.com/watch?v=abcdefghijk") is None
+
+
+def test_direct_youtube_url_publishes_website_link(monkeypatch):
+    published = []
+
+    class Message:
+        from_user = type("User", (), {"id": 8552899459})()
+
+        async def reply_text(self, text, **kwargs):
+            published.append(text)
+
+    async def fake_publish(message, video_id):
+        published.append((message, video_id))
+
+    monkeypatch.setattr(yt, "_publish_youtube_embed", fake_publish)
+    handled = asyncio.run(
+        yt.handle_youtube_url(Message(), "https://youtu.be/abcdefghijk")
+    )
+
+    assert handled is True
+    assert published[0][1] == "abcdefghijk"
+
+
+def test_direct_youtube_handler_stops_telegram_link_processing(monkeypatch):
+    class Message:
+        text = "https://youtu.be/abcdefghijk"
+        caption = None
+
+    async def fake_handle_url(message, value):
+        assert value == message.text
+        return True
+
+    monkeypatch.setattr(yt, "handle_youtube_url", fake_handle_url)
+
+    with pytest.raises(StopPropagation):
+        asyncio.run(yt.direct_youtube_link(None, Message()))
 
 
 def test_youtube_link_is_published_to_the_public_site(monkeypatch):

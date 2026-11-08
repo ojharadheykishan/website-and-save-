@@ -127,34 +127,88 @@ def get_catalog_path(catalog_path=None):
     return str(repo_dir / "stream_catalog.json")
 
 
-def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None):
+def append_stream_link(
+    player_url,
+    stream_url,
+    label="stream",
+    archive_path=None,
+    catalog_path=None,
+    subject=None,
+    description=None,
+    title=None,
+    token=None,
+    category=None,
+    folder=None,
+    date=None,
+    content_hash=None,
+):
     """Append a generated stream link to a text archive file and save structured metadata."""
     archive_file = Path(get_archive_path(archive_path))
     archive_file.parent.mkdir(parents=True, exist_ok=True)
     stamp = dt.now().strftime("%Y-%m-%d %H:%M:%S")
-    with archive_file.open("a", encoding="utf-8") as handle:
-        handle.write(f"[{stamp}] {label}\n")
-        handle.write(f"Player: {player_url}\n")
-        handle.write(f"Stream: {stream_url}\n\n")
-
     catalog_file = Path(get_catalog_path(catalog_path))
     catalog_file.parent.mkdir(parents=True, exist_ok=True)
-    entries = read_stream_entries(catalog_path=str(catalog_file))
-
     entry = {
         "timestamp": stamp,
-        "date": dt.now().strftime("%Y-%m-%d"),
+        "date": date or dt.now().strftime("%Y-%m-%d"),
         "label": label,
         "subject": subject or "General",
+        "category": category or "General",
         "description": description or "",
         "title": title or (subject or "Untitled"),
         "token": token or os.path.basename(player_url).split("/")[-1],
         "player_url": player_url,
         "stream_url": stream_url,
     }
-    entries.append(entry)
-    with catalog_file.open("w", encoding="utf-8") as handle:
-        json.dump(entries, handle, indent=2, ensure_ascii=False)
+    if folder and not any(
+        line.strip().lower().startswith(("folder:", "topic:"))
+        for line in entry["description"].splitlines()
+    ):
+        entry["description"] = f"Folder: {folder}\n{entry['description']}".strip()
+    if content_hash:
+        entry["content_hash"] = content_hash
+
+    with _CATALOG_WRITE_LOCK:
+        if catalog_file.exists():
+            try:
+                entries = json.loads(catalog_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ValueError("The study catalog could not be read; refusing to overwrite it.") from error
+            if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
+                raise ValueError("The study catalog has an unsupported format.")
+        else:
+            entries = []
+
+        if content_hash:
+            for existing in entries:
+                if existing.get("content_hash") == content_hash:
+                    return {"duplicate": True, "entry": existing}
+
+        entries.append(entry)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=catalog_file.parent,
+                prefix=f".{catalog_file.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = handle.name
+                json.dump(entries, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, catalog_file)
+        except OSError:
+            if temporary_path and os.path.exists(temporary_path):
+                os.remove(temporary_path)
+            raise
+
+    with archive_file.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{stamp}] {label}\n")
+        handle.write(f"Player: {player_url}\n")
+        handle.write(f"Stream: {stream_url}\n\n")
 
     return str(archive_file)
 

@@ -151,7 +151,7 @@ async def get_msg(
             "📸 **Stories are not supported for download yet.**\n"
             "Send a normal message link (t.me/c/.../ID or t.me/username/ID)."
         )
-        return None
+        return "failed"
 
     if parsed_chat is None or parsed_msg is None:
         await app.edit_message_text(
@@ -159,7 +159,7 @@ async def get_msg(
             f"❌ Could not parse link: `{msg_link}`\n"
             "Make sure it's a valid Telegram message link."
         )
-        return None
+        return "failed"
 
     chat = parsed_chat
     msg_id = parsed_msg + int(i)
@@ -195,7 +195,7 @@ async def get_msg(
 
             if msg.service is not None or msg.empty is not None:
                 logger.warning(f"Message {msg_id} in chat {chat} is service or empty")
-                return None
+                return "retry"
 
             if getattr(msg, "has_protected_content", False):
                 await app.edit_message_text(
@@ -203,7 +203,7 @@ async def get_msg(
                     edit_id,
                     "This message has content protection enabled, so it cannot be copied.",
                 )
-                return None
+                return "failed"
 
             if msg.media:
                 edit = await app.edit_message_text(sender, edit_id, "Trying a direct forward...")
@@ -215,6 +215,43 @@ async def get_msg(
                     if isinstance(forwarded, list):
                         forwarded = forwarded[0] if forwarded else None
                     if forwarded:
+                        try:
+                            file = await asyncio.wait_for(
+                                userbot.download_media(
+                                    msg,
+                                    progress=progress_bar,
+                                    progress_args=(
+                                        "📥 Downloading media for website link...",
+                                        edit,
+                                        time.time(),
+                                        "",
+                                        msg_link,
+                                        new_progress_session(),
+                                    ),
+                                ),
+                                timeout=3600,
+                            )
+                            if file:
+                                await trigger_stream_link_notifications(
+                                    sender, forwarded, file
+                                )
+                            else:
+                                await share_stream_link(sender, forwarded)
+                                await app.send_message(
+                                    sender,
+                                    "✅ Media forwarded. A website player link could not "
+                                    "be generated because the media copy was unavailable.",
+                                )
+                        except Exception as link_error:
+                            logger.exception(
+                                "Forwarded media link generation failed: %s", link_error
+                            )
+                            await share_stream_link(sender, forwarded)
+                            await app.send_message(
+                                sender,
+                                "✅ Media forwarded, but its website player link could "
+                                "not be generated.",
+                            )
                         try:
                             await userbot.send_message(
                                 target_chat_id,
@@ -229,14 +266,14 @@ async def get_msg(
                             except Exception:
                                 pass
                         if not is_batch:
-                            await edit.edit("✅ Forwarded successfully. Original source attribution is preserved.")
+                            await edit.edit_text("✅ Forwarded successfully. Original source attribution is preserved.")
                             asyncio.create_task(delete_message_after_1h(sender, edit.id))
                         else:
-                            await edit.edit("✅ Forwarded successfully.")
+                            await edit.edit_text("✅ Forwarded successfully.")
                         asyncio.create_task(
                             log_clone_operation(app, msg, "MEDIA FORWARD", sender, caption=msg.caption)
                         )
-                        return None
+                        return "success"
                 except Exception as e:
                     logger.info(f"Direct forward unavailable; falling back to upload: {e}")
 
@@ -282,7 +319,7 @@ async def get_msg(
                     if 't.me/c/' in msg_link or '-100' in str(chat):
                         error_msg += " For private channels, ensure your logged-in account has access to the channel and the message exists."
                     await app.edit_message_text(sender, edit_id, error_msg)
-                    return None
+                    return "retry"
 
             file = apply_rename_tag(file, sender)
             new_file_name = os.path.basename(file) if file else 'Unknown'
@@ -296,6 +333,7 @@ async def get_msg(
                     f"{msg.text.markdown}",
                     reply_to_message_id=target_thread_id,
                 )
+                sent_success = bool(safe_repo)
                 if msg.pinned_message:
                     try:
                         await safe_repo.pin(both_sides=True)
@@ -310,7 +348,7 @@ async def get_msg(
                 try:
                     file_size = os.path.getsize(file) if file and os.path.exists(file) else 0
                     if not is_batch:
-                        await edit.edit(
+                        await edit.edit_text(
                             f"**✅ Uploaded Successfully!**\n\n📁 **File:** `{new_file_name}`\n📦 **Size:** {humanbytes(file_size)}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096\n\n__**Powered by Radhey Kishan Ojha **__",
                         )
                         # Schedule deletion after 1 hour
@@ -318,7 +356,7 @@ async def get_msg(
                 except Exception:
                     pass
             elif msg.media == MessageMediaType.PHOTO:
-                await edit.edit("**`Uploading photo...`**")
+                await edit.edit_text("**`Uploading photo...`**")
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
                 original_caption = msg.caption if msg.caption else ''
@@ -388,7 +426,7 @@ async def get_msg(
                 try:
                     file_size = os.path.getsize(file) if file and os.path.exists(file) else 0
                     if not is_batch:
-                        await edit.edit(
+                        await edit.edit_text(
                             f"**✅ Uploaded Successfully!**\n\n📁 **File:** `{new_file_name}`\n📦 **Size:** {humanbytes(file_size)}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096\n\n__**Powered by Radhey Kishan Ojha **__",
                         )
                         # Schedule deletion after 1 hour
@@ -396,7 +434,7 @@ async def get_msg(
                 except Exception:
                     pass
             elif msg.media == MessageMediaType.DOCUMENT:
-                await edit.edit("**`Uploading document...`**")
+                await edit.edit_text("**`Uploading document...`**")
                 thumb_path = thumbnail(chatx)
                 if (msg.document.mime_type or "").startswith("video/"):
                     thumb_path = await screenshot(file, media_duration(msg), chatx)
@@ -488,7 +526,7 @@ async def get_msg(
                 try:
                     file_size = os.path.getsize(file) if file and os.path.exists(file) else 0
                     if not is_batch:
-                        await edit.edit(
+                        await edit.edit_text(
                             f"**✅ Uploaded Successfully!**\n\n📁 **File:** `{new_file_name}`\n📦 **Size:** {humanbytes(file_size)}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096\n\n__**Powered by Radhey Kishan Ojha clone**__",
                         )
                         # Schedule deletion after 1 hour
@@ -496,7 +534,7 @@ async def get_msg(
                 except Exception:
                     pass
             elif msg.media == MessageMediaType.VIDEO:
-                await edit.edit("**`Uploading video...`**")
+                await edit.edit_text("**`Uploading video...`**")
                 thumb_path = await screenshot(file, media_duration(msg), chatx)
                 delete_words = load_delete_words(sender)
                 custom_caption = get_user_caption_preference(sender)
@@ -568,7 +606,7 @@ async def get_msg(
                 try:
                     file_size = os.path.getsize(file) if file and os.path.exists(file) else 0
                     if not is_batch:
-                        await edit.edit(
+                        await edit.edit_text(
                             f"**✅ Uploaded Successfully!**\n\n📁 **File:** `{new_file_name}`\n📦 **Size:** {humanbytes(file_size)}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096\n\n__**Powered by Radhey Kishan Ojha clone**__",
                         )
                         # Schedule deletion after 1 hour
@@ -576,7 +614,7 @@ async def get_msg(
                 except Exception:
                     pass
             elif file:
-                await edit.edit("**`Uploading media...`**")
+                await edit.edit_text("**`Uploading media...`**")
                 caption = add_download_credit(msg.caption)
                 try:
                     safe_repo = await app.send_document(
@@ -627,7 +665,7 @@ async def get_msg(
                 try:
                     file_size = os.path.getsize(file) if file and os.path.exists(file) else 0
                     if not is_batch:
-                        await edit.edit(
+                        await edit.edit_text(
                             f"**✅ Uploaded Successfully!**\n\n📁 **File:** `{new_file_name}`\n📦 **Size:** {humanbytes(file_size)}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096\n\n__**Powered by Radhey Kishan Ojha clone**__",
                         )
                         # Schedule deletion after 1 hour
@@ -639,7 +677,7 @@ async def get_msg(
                 media_type = str(msg.media) if msg.media else "None"
                 logger.error(f"No media handling for message {msg_id} in chat {chat}. Media: {media_type}, File: {file}")
                 await app.edit_message_text(sender, edit_id, f"Unsupported media type or processing error. Please try again or contact support.")
-                return None
+                return "failed"
 
         except Exception as e:
             logger.error(f"Error in get_msg: {e}")
@@ -647,7 +685,7 @@ async def get_msg(
             
             # Send error alert
             asyncio.create_task(send_alert(app, None, "GET_MSG ERROR", {"user_id": sender, "message": f"Failed to save: {msg_link} - {str(e)}"}))
-            return None
+            return "retry"
         finally:
             try:
                 if file and os.path.exists(file):
@@ -662,13 +700,13 @@ async def get_msg(
                             pass
             except Exception as e:
                 logger.error(f"Cleanup error: {e}")
-        return None
+        return "success" if sent_success else "retry"
     else:
         edit = await app.edit_message_text(sender, edit_id, "Cloning...")
         try:
             # Use the robust parser result for public links too (handles topics)
             pub_chat = parsed_chat if parsed_chat is not None else msg_link.split("/")[-2]
-            await copy_message_with_chat_id(
+            copied = await copy_message_with_chat_id(
                 app,
                 sender,
                 pub_chat,
@@ -679,9 +717,10 @@ async def get_msg(
                 destination_thread_id,
             )
             await edit.delete()
+            return "success" if copied else "retry"
         except Exception as e:
             await app.edit_message_text(sender, edit_id, f'Failed to save: `{msg_link}`\n\nError: {str(e)}')
-        return None
+            return "retry"
 
 
 async def notify_stream_links(sender, file_path):
@@ -690,8 +729,13 @@ async def notify_stream_links(sender, file_path):
         if not file_path or not os.path.exists(file_path):
             return
 
-        result = save_stream_file(file_path)
+        result = await asyncio.to_thread(save_stream_file, file_path)
         if not result:
+            await app.send_message(
+                chat_id=sender,
+                text="⚠️ Website player link couldn't be created for this file. "
+                     "It may exceed the configured stream-cache limit.",
+            )
             return
 
         append_stream_link(result['player_url'], result['stream_url'], label="clone_upload")
@@ -764,7 +808,7 @@ async def copy_message_with_chat_id(
                 sender,
                 "This message has content protection enabled, so it cannot be copied.",
             )
-            return
+            return False
 
         custom_caption = get_user_caption_preference(sender)
         original_caption = msg.caption if msg.caption else ''
@@ -799,6 +843,9 @@ async def copy_message_with_chat_id(
                 message_id,
                 reply_to_message_id=destination_thread_id,
             )
+
+        if not result:
+            return False
 
         if result:
             if target_chat_id != sender and target_chat_id != LOG_GROUP:
@@ -837,6 +884,7 @@ async def copy_message_with_chat_id(
 
         # Log clone operation (this will send alert)
         asyncio.create_task(log_clone_operation(client, msg, "COPY MESSAGE CLONE", sender, None, filename))
+        return True
 
     except Exception as e:
         error_message = f"Error occurred while sending message to chat ID {target_chat_id}: {str(e)}"
@@ -849,6 +897,7 @@ async def copy_message_with_chat_id(
             sender,
             f"Make Bot admin in your Channel - {target_chat_id} and restart the process after /cancel",
         )
+        return False
 
 # -------------- FFMPEG CODES ---------------
 
@@ -911,9 +960,14 @@ def save_replacement_words(user_id, replacements):
     _write_json(_DATA_FILE, data)
 
 def get_user_chat_id(user_id, default=None):
+    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
+    active_destination = user.get("active_destination")
+    if active_destination:
+        destination = user.get("destinations", {}).get(active_destination)
+        if destination:
+            return destination
     if user_id in user_chat_ids:
         return user_chat_ids[user_id]
-    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
     return user.get("chat_id") or default
 
 
@@ -924,6 +978,55 @@ def save_user_chat_id(user_id, chat_id):
     data[str(user_id)] = user
     _write_json(_DATA_FILE, data)
     user_chat_ids[user_id] = chat_id
+
+
+def load_named_destinations(user_id):
+    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
+    destinations = user.get("destinations", {})
+    return destinations if isinstance(destinations, dict) else {}
+
+
+def get_active_named_destination(user_id):
+    user = _read_json(_DATA_FILE, {}).get(str(user_id), {})
+    return user.get("active_destination")
+
+
+def save_named_destination(user_id, name, chat_id):
+    data = _read_json(_DATA_FILE, {})
+    user = data.get(str(user_id), {})
+    destinations = user.get("destinations", {})
+    if not isinstance(destinations, dict):
+        destinations = {}
+    destinations[name] = chat_id
+    user["destinations"] = destinations
+    data[str(user_id)] = user
+    _write_json(_DATA_FILE, data)
+
+
+def select_named_destination(user_id, name):
+    data = _read_json(_DATA_FILE, {})
+    user = data.get(str(user_id), {})
+    destinations = user.get("destinations", {})
+    if name not in destinations:
+        raise ValueError(f"No saved destination named '{name}'.")
+    user["active_destination"] = name
+    data[str(user_id)] = user
+    _write_json(_DATA_FILE, data)
+    user_chat_ids[user_id] = destinations[name]
+
+
+def remove_named_destination(user_id, name):
+    data = _read_json(_DATA_FILE, {})
+    user = data.get(str(user_id), {})
+    destinations = user.get("destinations", {})
+    if name not in destinations:
+        raise ValueError(f"No saved destination named '{name}'.")
+    del destinations[name]
+    if user.get("active_destination") == name:
+        user.pop("active_destination", None)
+    user["destinations"] = destinations
+    data[str(user_id)] = user
+    _write_json(_DATA_FILE, data)
 
 # Function to load user session from MongoDB
 def load_user_session(sender_id):

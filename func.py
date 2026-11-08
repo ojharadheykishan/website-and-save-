@@ -330,7 +330,7 @@ async def progress_bar(current, total, *args):
             extra_line2=extra_line2,
         )
 
-        await message.edit(text=text)
+        await message.edit_text(text=text)
         session.last_update = now
     except Exception as e:
         logger.exception("Progress bar update failed: %s", e)
@@ -353,7 +353,7 @@ By Radhey Kishan Ojha
 📞 https://t.me/Radheyojha096
 
 """
-        await message.edit(completion_text)
+        await message.edit_text(completion_text)
     except Exception as e:
         logger.error(f"Completion UI error: {e}")
         pass

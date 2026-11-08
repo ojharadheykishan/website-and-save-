@@ -3,8 +3,10 @@
 # MX Player / VLC streamable link (t.me/Link09660/MSGID).
 # This module does NOT modify any existing upload/download logic.
 
+import asyncio
 import logging
 import os
+import hashlib
 import time
 import uuid
 from datetime import datetime
@@ -21,16 +23,19 @@ from safe_repo.core.media_links import (
 from safe_repo.web.study import build_public_study_url
 
 logger = logging.getLogger(__name__)
+LINK_PROGRESS_STICKERS = ("🎬", "🎞️", "🍿", "📽️", "✨")
+LINK_PROGRESS_SPINNERS = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
-def format_progress_bar(percent, title="Processing", note="Please wait"):
-    """Create a compact Telegram-friendly progress message."""
+def format_progress_bar(percent, title="Processing", note="Please wait", frame=0):
+    """Create a compact link-generation bar, independent of transfer progress."""
     percent = max(0, min(100, int(percent)))
     filled = max(1, int(round(percent / 10)))
     empty = 10 - filled
     bar = "█" * filled + "░" * empty
     return (
-        f"🎬 {title}\n"
+        f"{LINK_PROGRESS_SPINNERS[frame % len(LINK_PROGRESS_SPINNERS)]} "
+        f"{LINK_PROGRESS_STICKERS[frame % len(LINK_PROGRESS_STICKERS)]} **{title}**\n"
         f"[{bar}] {percent}%\n"
         f"{note}"
     )
@@ -71,6 +76,8 @@ def extract_stream_metadata(message, fallback_title=None):
     title = fallback_title or "Untitled"
     description = caption
     subject = "General"
+    category = "General"
+    folder = "General"
     date = datetime.now().strftime("%Y-%m-%d")
 
     if caption:
@@ -78,14 +85,40 @@ def extract_stream_metadata(message, fallback_title=None):
         if lines:
             title = lines[0]
         for line in lines:
-            if line.lower().startswith("subject:"):
-                subject = line.split(":", 1)[1].strip() or subject
-                break
-            if line.lower().startswith("topic:"):
-                subject = line.split(":", 1)[1].strip() or subject
-                break
+            label, separator, value = line.partition(":")
+            if not separator:
+                continue
+            label = label.strip().lower()
+            value = value.strip()
+            if label in {"subject", "topic"} and value:
+                subject = value[:120]
+            elif label in {"class", "category"} and value:
+                category = value[:120]
+            elif label == "folder" and value:
+                folder = value[:120]
+            elif label == "date" and len(value) == 10:
+                try:
+                    date = datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+                except ValueError:
+                    logger.warning("Ignoring invalid study date metadata: %s", value)
 
-    return {"subject": subject, "description": description, "title": title, "date": date}
+    return {
+        "subject": subject,
+        "category": category,
+        "folder": folder,
+        "description": description,
+        "title": title[:300],
+        "date": date,
+    }
+
+
+def calculate_content_hash(file_path):
+    """Return a SHA-256 digest without loading the complete media file into memory."""
+    digest = hashlib.sha256()
+    with open(file_path, "rb") as media_file:
+        for chunk in iter(lambda: media_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_local_file_name(message):
@@ -235,7 +268,7 @@ async def build_public_stream_link(message, media_file=None):
     """Build a public stream link from local cache when possible, else fall back to a Telegram channel post for large or unsupported files."""
     if media_file and os.path.exists(media_file):
         try:
-            saved = save_stream_file(media_file)
+            saved = await asyncio.to_thread(save_stream_file, media_file)
             if saved:
                 return {
                     "source": "cache",
@@ -263,20 +296,21 @@ def build_public_study_link(metadata=None, base_url=None):
     subject = str(metadata.get("subject") or "").strip() or None
     date = str(metadata.get("date") or "").strip() or None
     title = str(metadata.get("title") or "").strip() or None
+    folder = str(metadata.get("folder") or "").strip() or None
 
     if not base_url:
         base_url = get_public_base_url()
 
     if subject and date and title:
-        return build_public_study_url(base_url, subject=subject, date=date, q=title)
+        return build_public_study_url(base_url, subject=subject, date=date, q=title, folder=folder)
 
     if subject and date:
-        return build_public_study_url(base_url, subject=subject, date=date)
+        return build_public_study_url(base_url, subject=subject, date=date, folder=folder)
 
     if subject:
-        return build_public_study_url(base_url, subject=subject)
+        return build_public_study_url(base_url, subject=subject, folder=folder)
 
-    return build_public_study_url(base_url)
+    return build_public_study_url(base_url, folder=folder)
 
 
 def build_stream_reply_text(public_link, study_url=None):
@@ -347,14 +381,16 @@ async def send_stream_link(sender, message, caption_prefix="🎬 **Stream Link:*
         logger.error(f"send_stream_link failed: {e}")
 
 
-@app.on_message(filters.media)
+@app.on_message(filters.media | filters.forwarded)
 async def handle_direct_media(client, message):
     """Generate a public stream link for any media sent directly to the bot."""
+    chat_id = getattr(getattr(message, "chat", None), "id", None)
     try:
         if not has_media_payload(message):
             return
 
-        chat_id = message.chat.id
+        if chat_id is None:
+            raise ValueError("The incoming media message has no chat ID.")
         status_message = await app.send_message(
             chat_id,
             format_progress_bar(15, "Processing media", "Starting download"),
@@ -374,16 +410,29 @@ async def handle_direct_media(client, message):
             )
             return
 
-        try:
-            await app.edit_message_text(
-                chat_id,
-                status_message.id,
-                format_progress_bar(60, "Preparing stream link", "Generating public link"),
-            )
-        except Exception:
-            pass
-
-        public_link = await build_public_stream_link(message, media_file)
+        await app.edit_message_text(
+            chat_id,
+            status_message.id,
+            format_progress_bar(60, "Preparing stream link", "Generating public link"),
+        )
+        link_task = asyncio.create_task(build_public_stream_link(message, media_file))
+        frame = 0
+        while not link_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(link_task), timeout=0.8)
+            except asyncio.TimeoutError:
+                frame += 1
+                await app.edit_message_text(
+                    chat_id,
+                    status_message.id,
+                    format_progress_bar(
+                        min(60 + frame, 95),
+                        "Preparing stream link",
+                        "Generating public link",
+                        frame=frame,
+                    ),
+                )
+        public_link = await link_task
         if not public_link:
             try:
                 os.remove(media_file)
@@ -393,8 +442,10 @@ async def handle_direct_media(client, message):
             return
 
         metadata = extract_stream_metadata(message, fallback_title=os.path.basename(media_file))
+        content_hash = await asyncio.to_thread(calculate_content_hash, media_file)
         study_url = build_public_study_link(metadata)
-        append_stream_link(
+        catalog_result = await asyncio.to_thread(
+            append_stream_link,
             public_link['player_url'],
             public_link['stream_url'],
             label="direct_media",
@@ -402,7 +453,26 @@ async def handle_direct_media(client, message):
             description=metadata['description'],
             title=metadata['title'],
             token=public_link.get('token'),
+            category=metadata['category'],
+            folder=metadata['folder'],
+            date=metadata['date'],
+            content_hash=content_hash,
         )
+        if isinstance(catalog_result, dict) and catalog_result.get("duplicate"):
+            existing_entry = catalog_result.get("entry", {})
+            for path in (media_file, public_link.get("file_path")):
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        logger.warning("Could not remove duplicate media cache file %s", path)
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                "♻️ This media is already in your study library.\n"
+                f"🌐 Existing link: {existing_entry.get('player_url', public_link['player_url'])}",
+            )
+            return
         await archive_stream_link(message, public_link['player_url'], public_link['stream_url'], study_url=study_url)
 
         text = build_stream_reply_text(public_link, study_url=study_url)
@@ -414,15 +484,8 @@ async def handle_direct_media(client, message):
             pass
     except Exception as e:
         logger.error(f"handle_direct_media failed: {e}")
-        await app.send_message(chat_id, f"⚠️ Error: {str(e)}")
-
-
-@app.on_message(filters.forwarded)
-async def handle_forwarded_media(client, message):
-    """Generate stream links for forwarded media messages as well."""
-    if not has_media_payload(message):
-        return
-    await handle_direct_media(client, message)
+        if chat_id is not None:
+            await app.send_message(chat_id, f"⚠️ Error: {str(e)}")
 
 
 @app.on_message(filters.command("links"))

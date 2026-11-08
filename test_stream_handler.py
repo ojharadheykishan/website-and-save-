@@ -59,6 +59,16 @@ def test_format_progress_bar_contains_percentage_and_label():
     assert "60%" in text
     assert "Downloading media" in text
     assert "Please wait" in text
+    assert any(sticker in text for sticker in stream_module.LINK_PROGRESS_STICKERS)
+
+
+def test_link_progress_bar_animates_its_own_sticker_and_spinner():
+    first = format_progress_bar(60, "Preparing stream link", "Generating", frame=0)
+    second = format_progress_bar(60, "Preparing stream link", "Generating", frame=1)
+
+    assert first != second
+    assert "📥" not in first
+    assert "📤" not in first
 
 
 def test_trigger_stream_link_notifications_schedules_both_paths(monkeypatch):
@@ -83,8 +93,8 @@ def test_trigger_stream_link_notifications_schedules_both_paths(monkeypatch):
 
 def test_download_media_payload_reports_transfer_progress(monkeypatch):
     class ProgressMessage:
-        async def edit(self, text):
-            pass
+        async def edit_text(self, text):
+            self.text = text
 
     class Client:
         async def download_media(self, message, **kwargs):
@@ -111,8 +121,76 @@ def test_download_media_payload_reports_transfer_progress(monkeypatch):
     assert client.kwargs["progress_args"][0] == "📥 Downloading media..."
 
 
+def test_forwarded_media_generates_a_website_link(tmp_path, monkeypatch):
+    media_file = tmp_path / "forwarded.mp4"
+    media_file.write_bytes(b"video")
+    updates = []
+
+    class IncomingMessage:
+        chat = type("Chat", (), {"id": 123})()
+        id = 456
+        forward_origin = object()
+        caption = "Forwarded lesson"
+
+    class StatusMessage:
+        id = 789
+
+    async def fake_send_message(chat_id, text):
+        assert chat_id == 123
+        updates.append(text)
+        return StatusMessage()
+
+    async def fake_edit_message_text(chat_id, message_id, text):
+        assert (chat_id, message_id) == (123, 789)
+        updates.append(text)
+
+    async def fake_download(*args, **kwargs):
+        return str(media_file)
+
+    async def fake_build_link(*args, **kwargs):
+        return {
+            "player_url": "https://example.com/player/video",
+            "stream_url": "https://example.com/stream/video",
+            "token": "video",
+        }
+
+    async def fake_archive(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(stream_module.app, "send_message", fake_send_message)
+    monkeypatch.setattr(stream_module.app, "edit_message_text", fake_edit_message_text)
+    monkeypatch.setattr(stream_module, "download_media_payload", fake_download)
+    monkeypatch.setattr(stream_module, "build_public_stream_link", fake_build_link)
+    monkeypatch.setattr(
+        stream_module,
+        "extract_stream_metadata",
+        lambda *args, **kwargs: {
+            "subject": "General",
+            "category": "General",
+            "folder": "General",
+            "description": "Forwarded lesson",
+            "title": "Forwarded lesson",
+            "date": "2026-11-08",
+        },
+    )
+    monkeypatch.setattr(stream_module, "calculate_content_hash", lambda _path: "digest")
+    monkeypatch.setattr(
+        stream_module,
+        "build_public_study_link",
+        lambda *args, **kwargs: "https://example.com/study",
+    )
+    monkeypatch.setattr(stream_module, "append_stream_link", lambda *args, **kwargs: "archive")
+    monkeypatch.setattr(stream_module, "archive_stream_link", fake_archive)
+
+    asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
+
+    assert any("https://example.com/player/video" in update for update in updates)
+    assert not media_file.exists()
+
+
 def test_private_message_forward_uses_saved_output_destination(monkeypatch):
     forwarded_to = []
+    link_notifications = []
 
     class SourceMessage:
         media = True
@@ -136,6 +214,9 @@ def test_private_message_forward_uses_saved_output_destination(monkeypatch):
         async def send_message(self, *args, **kwargs):
             pass
 
+        async def download_media(self, message, **kwargs):
+            return "/tmp/forwarded-media.mp4"
+
     class RequestMessage:
         class Chat:
             id = 123
@@ -143,7 +224,9 @@ def test_private_message_forward_uses_saved_output_destination(monkeypatch):
         chat = Chat()
 
     class ProgressMessage:
-        async def edit(self, text):
+        id = 1
+
+        async def edit_text(self, text):
             pass
 
     async def fake_edit_message_text(*args):
@@ -152,9 +235,15 @@ def test_private_message_forward_uses_saved_output_destination(monkeypatch):
     async def fake_log_clone_operation(*args, **kwargs):
         pass
 
+    async def fake_trigger_stream_link_notifications(sender, result_msg, file_path):
+        link_notifications.append((sender, result_msg.id, file_path))
+
     monkeypatch.setattr(get_func, "get_user_chat_id", lambda user_id, default: -100987)
     monkeypatch.setattr(get_func.app, "edit_message_text", fake_edit_message_text)
     monkeypatch.setattr(get_func, "log_clone_operation", fake_log_clone_operation)
+    monkeypatch.setattr(
+        get_func, "trigger_stream_link_notifications", fake_trigger_stream_link_notifications
+    )
     get_func.user_chat_ids.clear()
 
     async def run():
@@ -172,6 +261,7 @@ def test_private_message_forward_uses_saved_output_destination(monkeypatch):
     asyncio.run(run())
 
     assert forwarded_to == [-100987]
+    assert link_notifications == [(123, 99, "/tmp/forwarded-media.mp4")]
 
 
 def test_public_message_copy_targets_selected_forum_topic(monkeypatch):

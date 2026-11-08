@@ -23,10 +23,12 @@ This branch is purely based on `Pyrogram V2` with more stability And this is bas
 - **`settings`**: Access and modify your settings.
 - **`yt`**: Add a YouTube link to the public website as an official embed, or search videos.
 
-The bot owner can use `/yt <YouTube video link>` to add the link to the website's **YouTube**
-folder and get a website player URL. The page embeds the original YouTube player: playback
-still uses YouTube, and the bot does not download or re-upload the video. To search by keywords,
-set a YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
+The bot owner can use `/yt <YouTube video link>` or send a YouTube video URL directly to the
+bot in a private chat to add it to the website's **YouTube** folder and get a website player
+URL. The page embeds the original YouTube player: playback still uses YouTube, and the bot does
+not download or re-upload the video. YouTube playback speeds depend on the official player;
+site-hosted videos in the website player support speeds up to 4×. To search by keywords, set a
+YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
 
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to
@@ -43,7 +45,8 @@ sending it to the bot.
 - direct rename and forward to channel/group/users
 - Custome caption/thumbnail
 - Automatically generate compact video thumbnails when no custom thumbnail is set
-- Twelve progress-bar themes and 40 rotating emoji icons for each transfer
+- Twelve progress-bar themes and 40 rotating emoji icons for each transfer, plus a separate
+  animated progress display while generating website links
 - Allow two concurrent media transfers to reduce waiting during parallel jobs
 - auto default thumbnail removal from videos
 - Deleting/Replacing words from file name and caption

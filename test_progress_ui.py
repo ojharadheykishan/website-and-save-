@@ -4,7 +4,13 @@ import os
 import cv2
 import numpy as np
 
-from safe_repo.core.func import PROGRESS_STICKERS, THEME_STYLES, ProgressSession, screenshot
+from safe_repo.core.func import (
+    PROGRESS_STICKERS,
+    THEME_STYLES,
+    ProgressSession,
+    progress_bar,
+    screenshot,
+)
 
 
 def test_progress_sessions_offer_twelve_visual_styles():
@@ -19,6 +25,32 @@ def test_progress_stickers_show_once_before_the_cycle_repeats():
     assert len(PROGRESS_STICKERS) == 40
     assert len(set(stickers)) == 40
     assert session.next_sticker() != stickers[-1]
+
+
+def test_transfer_progress_edits_message_and_shows_sticker():
+    class ProgressMessage:
+        text = None
+
+        async def edit_text(self, text):
+            self.text = text
+
+    message = ProgressMessage()
+    session = ProgressSession()
+    asyncio.run(
+        progress_bar(
+            50,
+            100,
+            "📥 Downloading media...",
+            message,
+            0,
+            "video.mp4",
+            "https://t.me/example/1",
+            session,
+        )
+    )
+
+    assert message.text is not None
+    assert session.stickers[0] in message.text
 
 
 def test_custom_thumbnail_is_resized_and_reencoded(tmp_path, monkeypatch):
