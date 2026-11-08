@@ -71,6 +71,163 @@ def test_link_progress_bar_animates_its_own_sticker_and_spinner():
     assert "📤" not in first
 
 
+def test_link_failure_message_includes_the_actual_reason():
+    text = stream_module.format_failure_message("Bot cannot post in the stream channel.")
+
+    assert "Bot cannot post in the stream channel." in text
+    assert "PUBLIC_BASE_URL" in text
+
+
+def test_large_media_uses_public_channel_fallback(tmp_path, monkeypatch):
+    media_file = tmp_path / "large.mp4"
+    media_file.write_bytes(b"large")
+    channel_posts = []
+
+    async def fake_post(message):
+        channel_posts.append(message)
+        return {
+            "link": "https://t.me/stream/99",
+            "embed": "https://t.me/stream/99?embed=1",
+        }
+
+    monkeypatch.setattr(stream_module, "is_public_base_url_configured", lambda: True)
+    monkeypatch.setattr(stream_module, "save_stream_file", lambda *_args: None)
+    monkeypatch.setattr(stream_module, "post_to_stream_channel", fake_post)
+    incoming = object()
+
+    result = asyncio.run(stream_module.build_public_stream_link(incoming, str(media_file)))
+
+    assert result["source"] == "channel"
+    assert "MAX_STREAM_FILE_SIZE_MB" in result["fallback_reason"]
+    assert channel_posts == [incoming]
+
+
+def test_failed_channel_fallback_reports_public_setup_problem(monkeypatch):
+    async def fake_post(_message):
+        return None
+
+    monkeypatch.setattr(stream_module, "is_public_base_url_configured", lambda: False)
+    monkeypatch.setattr(stream_module, "post_to_stream_channel", fake_post)
+
+    try:
+        asyncio.run(stream_module.build_public_stream_link(object()))
+    except RuntimeError as error:
+        assert "PUBLIC_BASE_URL is not configured" in str(error)
+        assert "posting access" in str(error)
+    else:
+        raise AssertionError("Failed fallback should explain why link creation failed.")
+
+
+def test_download_failure_still_tries_channel_link_fallback(monkeypatch, tmp_path):
+    updates = []
+    appended = []
+
+    class Video:
+        file_unique_id = "telegram-file-unique-id"
+
+    class IncomingMessage:
+        chat = type("Chat", (), {"id": 123})()
+        id = 456
+        video = Video()
+        caption = "Large video"
+
+    class StatusMessage:
+        id = 789
+
+    async def fake_send_message(chat_id, text):
+        updates.append(text)
+        return StatusMessage()
+
+    async def fake_edit_message_text(_chat_id, _message_id, text):
+        updates.append(text)
+
+    async def fake_download(*_args, **_kwargs):
+        return None
+
+    async def fake_build_link(message, media_file):
+        assert message.video.file_unique_id == "telegram-file-unique-id"
+        assert media_file is None
+        return {
+            "source": "channel",
+            "player_url": "https://t.me/stream/99?embed=1",
+            "stream_url": "https://t.me/stream/99",
+            "token": None,
+        }
+
+    async def fake_archive(*_args, **_kwargs):
+        pass
+
+    def fake_append(*_args, **kwargs):
+        appended.append(kwargs["content_hash"])
+        return "archive"
+
+    monkeypatch.setattr(stream_module.app, "send_message", fake_send_message)
+    monkeypatch.setattr(stream_module.app, "edit_message_text", fake_edit_message_text)
+    monkeypatch.setattr(stream_module, "download_media_payload", fake_download)
+    monkeypatch.setattr(stream_module, "build_public_stream_link", fake_build_link)
+    monkeypatch.setattr(stream_module, "find_stream_entry_by_content_hash", lambda *_args: None)
+    monkeypatch.setattr(stream_module, "extract_stream_metadata", lambda *_args, **_kwargs: {
+        "subject": "General",
+        "category": "General",
+        "folder": "General",
+        "description": "Large video",
+        "title": "Large video",
+        "date": "2026-11-08",
+    })
+    monkeypatch.setattr(stream_module, "build_public_study_link", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stream_module, "append_stream_link", fake_append)
+    monkeypatch.setattr(stream_module, "archive_stream_link", fake_archive)
+
+    asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
+
+    assert appended == ["telegram:telegram-file-unique-id"]
+    assert any("Trying channel fallback" in update for update in updates)
+    assert any("https://t.me/stream/99" in update for update in updates)
+
+
+def test_duplicate_media_returns_existing_link_without_reposting(monkeypatch):
+    updates = []
+
+    class Video:
+        file_unique_id = "existing-file-id"
+
+    class IncomingMessage:
+        chat = type("Chat", (), {"id": 123})()
+        id = 456
+        video = Video()
+        caption = "Duplicate video"
+
+    class StatusMessage:
+        id = 789
+
+    async def fake_send_message(_chat_id, text):
+        updates.append(text)
+        return StatusMessage()
+
+    async def fake_edit_message_text(_chat_id, _message_id, text):
+        updates.append(text)
+
+    async def fake_download(*_args, **_kwargs):
+        return None
+
+    async def unexpected_link_build(*_args, **_kwargs):
+        raise AssertionError("A duplicate must not be posted to the stream channel.")
+
+    monkeypatch.setattr(stream_module.app, "send_message", fake_send_message)
+    monkeypatch.setattr(stream_module.app, "edit_message_text", fake_edit_message_text)
+    monkeypatch.setattr(stream_module, "download_media_payload", fake_download)
+    monkeypatch.setattr(stream_module, "build_public_stream_link", unexpected_link_build)
+    monkeypatch.setattr(
+        stream_module,
+        "find_stream_entry_by_content_hash",
+        lambda *_args: {"player_url": "https://example.com/player/existing"},
+    )
+
+    asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
+
+    assert any("https://example.com/player/existing" in update for update in updates)
+
+
 def test_trigger_stream_link_notifications_schedules_both_paths(monkeypatch):
     calls = []
 

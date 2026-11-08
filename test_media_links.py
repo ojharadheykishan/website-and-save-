@@ -9,6 +9,8 @@ from safe_repo.core.media_links import (
     add_youtube_catalog_entry,
     save_stream_file,
     append_stream_link,
+    find_stream_entry_by_content_hash,
+    is_public_base_url_configured,
     read_stream_entries,
 )
 
@@ -67,6 +69,40 @@ def test_append_stream_link_stores_catalog_entry(tmp_path):
     assert len(entries) == 1
     assert entries[0]["subject"] == "Movie"
     assert entries[0]["token"] == "demo"
+
+
+def test_find_stream_entry_by_content_hash(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    append_stream_link(
+        "https://example.com/player/demo",
+        "https://example.com/stream/demo",
+        archive_path=str(tmp_path / "links.txt"),
+        catalog_path=str(catalog_path),
+        content_hash="telegram:file-id",
+    )
+
+    entry = find_stream_entry_by_content_hash(
+        "telegram:file-id",
+        catalog_path=str(catalog_path),
+    )
+
+    assert entry is not None
+    assert entry["player_url"] == "https://example.com/player/demo"
+    assert find_stream_entry_by_content_hash("missing", catalog_path=str(catalog_path)) is None
+
+
+def test_public_base_url_detection(monkeypatch):
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+    monkeypatch.delenv("RAILWAY_STATIC_URL", raising=False)
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.delenv("APP_URL", raising=False)
+    monkeypatch.delenv("BASE_URL", raising=False)
+
+    assert is_public_base_url_configured() is False
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://media.example")
+    assert is_public_base_url_configured() is True
 
 
 def test_add_youtube_catalog_entry_is_public_and_idempotent(tmp_path):

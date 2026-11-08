@@ -16,7 +16,9 @@ from safe_repo.core.func import new_progress_session, progress_bar
 from config import STREAM_CHANNEL, STREAM_CHANNEL_USERNAME, CLONE_LOG_CHANNEL
 from safe_repo.core.media_links import (
     append_stream_link,
+    find_stream_entry_by_content_hash,
     get_public_base_url,
+    is_public_base_url_configured,
     save_stream_file,
     read_stream_links,
 )
@@ -44,12 +46,10 @@ def format_progress_bar(percent, title="Processing", note="Please wait", frame=0
 def format_failure_message(reason="Stream setup failed"):
     """Return a friendly failure message for link generation issues."""
     return (
-        "⚠️ Stream link generate nahi ho paya\n\n"
-        "Possible reasons:\n"
-        "• file thoda badi ho sakti hai\n"
-        "• bot ke paas temporary storage access nahi ho\n"
-        "• public URL setup incomplete ho sakti hai\n\n"
-        "Aap dobara try karo ya thodi der baad try karo."
+        "⚠️ Stream link generate nahi ho paya.\n\n"
+        f"Reason: {reason}\n\n"
+        "Large files ke liye bot ko public stream channel mein post permission "
+        "chahiye. Website player ke liye `PUBLIC_BASE_URL` bhi set hona chahiye."
     )
 
 
@@ -119,6 +119,20 @@ def calculate_content_hash(file_path):
         for chunk in iter(lambda: media_file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def get_media_fingerprint(message):
+    """Return a stable Telegram file fingerprint when the file is not downloadable."""
+    for field in ("video", "document", "photo", "audio", "animation", "sticker", "voice", "video_note"):
+        media = getattr(message, field, None)
+        if not media:
+            continue
+        if isinstance(media, (list, tuple)):
+            media = media[-1] if media else None
+        unique_id = getattr(media, "file_unique_id", None)
+        if unique_id:
+            return f"telegram:{unique_id}"
+    return None
 
 
 def build_local_file_name(message):
@@ -201,7 +215,8 @@ async def download_media_payload(
             progress=progress_bar if status_message else None,
             progress_args=progress_args,
         )
-    except Exception:
+    except Exception as error:
+        logger.warning("Primary Telegram media download failed: %s", error)
         media_file = None
 
     if not media_file:
@@ -211,7 +226,8 @@ async def download_media_payload(
                 progress=progress_bar if status_message else None,
                 progress_args=progress_args,
             )
-        except Exception:
+        except Exception as error:
+            logger.warning("Fallback Telegram media download failed: %s", error)
             media_file = None
 
     if progress_sender and progress_message_id and media_file:
@@ -219,7 +235,7 @@ async def download_media_payload(
             await app.edit_message_text(
                 progress_sender,
                 progress_message_id,
-                format_progress_bar(100, "Link ready", "Almost done"),
+                format_progress_bar(100, "Download complete", "Preparing the website link"),
             )
         except Exception:
             pass
@@ -266,7 +282,10 @@ async def post_to_stream_channel(message):
 
 async def build_public_stream_link(message, media_file=None):
     """Build a public stream link from local cache when possible, else fall back to a Telegram channel post for large or unsupported files."""
-    if media_file and os.path.exists(media_file):
+    cache_error = None
+    if not is_public_base_url_configured():
+        cache_error = "PUBLIC_BASE_URL is not configured for the website player."
+    elif media_file and os.path.exists(media_file):
         try:
             saved = await asyncio.to_thread(save_stream_file, media_file)
             if saved:
@@ -275,9 +294,14 @@ async def build_public_stream_link(message, media_file=None):
                     "player_url": saved["player_url"],
                     "stream_url": saved["stream_url"],
                     "token": saved["token"],
+                    "file_path": saved["file_path"],
                 }
-        except Exception:
-            pass
+            cache_error = "File exceeds MAX_STREAM_FILE_SIZE_MB or cannot be cached."
+        except (OSError, ValueError) as error:
+            cache_error = f"Local stream cache failed: {error}"
+            logger.warning(cache_error)
+    else:
+        cache_error = "Telegram could not download the media for local website caching."
 
     result = await post_to_stream_channel(message)
     if result:
@@ -286,8 +310,17 @@ async def build_public_stream_link(message, media_file=None):
             "player_url": result["embed"],
             "stream_url": result["link"],
             "token": None,
+            "fallback_reason": cache_error,
         }
-    return None
+    if cache_error:
+        raise RuntimeError(
+            f"{cache_error} Telegram-channel fallback also failed. "
+            f"Check bot posting access in @{STREAM_CHANNEL_USERNAME}."
+        )
+    raise RuntimeError(
+        f"Could not post this media to @{STREAM_CHANNEL_USERNAME}. "
+        "Check that the bot is an administrator with posting permission."
+    )
 
 
 def build_public_study_link(metadata=None, base_url=None):
@@ -321,6 +354,12 @@ def build_stream_reply_text(public_link, study_url=None):
         f"📺 Player: {public_link['player_url']}",
         f"🔗 Direct Stream: {public_link['stream_url']}",
     ]
+    if public_link.get("source") == "channel":
+        lines.extend([
+            "",
+            "ℹ️ File is served from the public Telegram channel because local website "
+            "caching was unavailable. VLC/MX Player can open the direct link.",
+        ])
     if study_url:
         lines.extend([
             "",
@@ -385,6 +424,8 @@ async def send_stream_link(sender, message, caption_prefix="🎬 **Stream Link:*
 async def handle_direct_media(client, message):
     """Generate a public stream link for any media sent directly to the bot."""
     chat_id = getattr(getattr(message, "chat", None), "id", None)
+    status_message = None
+    media_file = None
     try:
         if not has_media_payload(message):
             return
@@ -402,19 +443,41 @@ async def handle_direct_media(client, message):
             progress_message_id=status_message.id,
             progress_message=status_message,
         )
+        content_hash = (
+            await asyncio.to_thread(calculate_content_hash, media_file)
+            if media_file
+            else get_media_fingerprint(message)
+        )
+        existing_entry = await asyncio.to_thread(
+            find_stream_entry_by_content_hash, content_hash
+        )
+        if existing_entry:
+            if media_file and os.path.exists(media_file):
+                os.remove(media_file)
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                "♻️ Ye media pehle se study library mein hai.\n"
+                f"🌐 Existing link: {existing_entry.get('player_url', 'N/A')}",
+            )
+            return
+
         if not media_file:
             await app.edit_message_text(
                 chat_id,
                 status_message.id,
-                "⚠️ Media download fail ho gaya.\n\nPlease try again in a moment.",
+                format_progress_bar(
+                    55,
+                    "Trying channel fallback",
+                    "Download nahi hua; public channel par media copy kar rahe hain",
+                ),
             )
-            return
-
-        await app.edit_message_text(
-            chat_id,
-            status_message.id,
-            format_progress_bar(60, "Preparing stream link", "Generating public link"),
-        )
+        else:
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                format_progress_bar(60, "Preparing stream link", "Generating public link"),
+            )
         link_task = asyncio.create_task(build_public_stream_link(message, media_file))
         frame = 0
         while not link_task.done():
@@ -433,17 +496,16 @@ async def handle_direct_media(client, message):
                     ),
                 )
         public_link = await link_task
-        if not public_link:
-            try:
-                os.remove(media_file)
-            except Exception:
-                pass
-            await app.edit_message_text(chat_id, status_message.id, format_failure_message())
-            return
 
-        metadata = extract_stream_metadata(message, fallback_title=os.path.basename(media_file))
-        content_hash = await asyncio.to_thread(calculate_content_hash, media_file)
-        study_url = build_public_study_link(metadata)
+        metadata = extract_stream_metadata(
+            message,
+            fallback_title=os.path.basename(media_file) if media_file else "Telegram media",
+        )
+        study_url = (
+            build_public_study_link(metadata)
+            if is_public_base_url_configured()
+            else None
+        )
         catalog_result = await asyncio.to_thread(
             append_stream_link,
             public_link['player_url'],
@@ -484,8 +546,20 @@ async def handle_direct_media(client, message):
             pass
     except Exception as e:
         logger.error(f"handle_direct_media failed: {e}")
-        if chat_id is not None:
+        if status_message:
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                format_failure_message(str(e)),
+            )
+        elif chat_id is not None:
             await app.send_message(chat_id, f"⚠️ Error: {str(e)}")
+    finally:
+        if media_file and os.path.exists(media_file):
+            try:
+                os.remove(media_file)
+            except OSError as cleanup_error:
+                logger.warning("Could not remove temporary media file %s: %s", media_file, cleanup_error)
 
 
 @app.on_message(filters.command("links"))

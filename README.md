@@ -8,7 +8,7 @@ Contact: [Telegram](https://t.me/safe_repo_bot)
 ---
 
 ## ABOUT THIS BRANCH
-This branch is purely based on `Pyrogram V2` with more stability And this is based on forced login means user must have to login in bot to use the bot you can use `v4` branch to avoid this.
+This branch uses Pyrogram V2. A user session login is required for Telegram message-link cloning; direct media and YouTube website-link generation do not require `/login`.
 
 ---
 ## Commands
@@ -29,6 +29,10 @@ URL. The page embeds the original YouTube player: playback still uses YouTube, a
 not download or re-upload the video. YouTube playback speeds depend on the official player;
 site-hosted videos in the website player support speeds up to 4×. To search by keywords, set a
 YouTube Data API v3 key in the `YOUTUBE_API_KEY` deployment environment variable.
+Direct media links use the website cache up to `MAX_STREAM_FILE_SIZE_MB` (default 5000 MB);
+configure `PUBLIC_BASE_URL` for the public player address. If downloading or caching fails, the
+bot tries posting to the public stream channel; the bot needs permission to post there. Duplicate
+uploads return their existing link instead of adding another catalog item.
 
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to

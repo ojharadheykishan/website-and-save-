@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime as dt
 from pathlib import Path
 from typing import Optional, Dict, List
+from urllib.parse import urlparse
 
 _STREAM_CACHE_DIR = None
 _CATALOG_WRITE_LOCK = threading.Lock()
@@ -57,6 +58,17 @@ def get_public_base_url(base_url=None):
         return value.rstrip("/")
 
     return "http://127.0.0.1:5000"
+
+
+def is_public_base_url_configured():
+    """Return whether a non-local public website URL is configured."""
+    parsed = urlparse(get_public_base_url())
+    hostname = (parsed.hostname or "").lower()
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(hostname)
+        and hostname not in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    )
 
 
 def _get_max_stream_file_size_bytes(max_size_mb=None):
@@ -211,6 +223,28 @@ def append_stream_link(
         handle.write(f"Stream: {stream_url}\n\n")
 
     return str(archive_file)
+
+
+def find_stream_entry_by_content_hash(content_hash, catalog_path=None):
+    """Find an existing catalog entry by its content fingerprint."""
+    if not content_hash:
+        return None
+
+    catalog_file = Path(get_catalog_path(catalog_path))
+    with _CATALOG_WRITE_LOCK:
+        if not catalog_file.exists():
+            return None
+        try:
+            entries = json.loads(catalog_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError("The study catalog could not be read.") from error
+        if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
+            raise ValueError("The study catalog has an unsupported format.")
+
+        return next(
+            (entry for entry in entries if entry.get("content_hash") == content_hash),
+            None,
+        )
 
 
 def add_youtube_catalog_entry(video_id, title, channel, base_url=None, catalog_path=None):
