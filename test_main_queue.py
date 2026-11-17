@@ -204,6 +204,56 @@ def test_forum_topic_listing_uses_pyrogram_raw_topics_request(monkeypatch):
     assert result == topics
 
 
+def test_direct_forum_subgroup_link_resolves_without_another_topic_prompt(monkeypatch):
+    manager = FakeWorkerManager()
+    message = FakeMessage("/batch https://t.me/source/10 https://t.me/source/11")
+    answers = iter(("yes", "https://t.me/destination/77", "yes"))
+    questions = []
+    topic_lookups = []
+
+    async def ask(_chat_id, text, **_kwargs):
+        questions.append(text)
+        return SimpleNamespace(text=next(answers))
+
+    async def send_message(_chat_id, _text):
+        return FakeStatusMessage()
+
+    async def get_chat(chat_id):
+        assert chat_id == "destination"
+        return SimpleNamespace(id=-100654, type="supergroup", title="Destination")
+
+    async def get_chat_member(_chat_id, _user_id):
+        return SimpleNamespace(status="member")
+
+    async def get_forum_topics(_chat_id):
+        return [SimpleNamespace(id=42, title="Physics")]
+
+    async def get_forum_topic(_chat_id, topic_id):
+        topic_lookups.append(topic_id)
+        return SimpleNamespace(id=77, title="Chemistry")
+
+    monkeypatch.setattr(bot_main, "get_link", lambda link: link)
+    monkeypatch.setattr(bot_main, "get_worker_manager", lambda: manager)
+    monkeypatch.setattr(bot_main.app, "ask", ask)
+    monkeypatch.setattr(bot_main.app, "send_message", send_message)
+    monkeypatch.setattr(bot_main.app, "get_chat", get_chat)
+    monkeypatch.setattr(
+        bot_main.app,
+        "get_me",
+        lambda: asyncio.sleep(0, result=SimpleNamespace(id=1)),
+    )
+    monkeypatch.setattr(bot_main.app, "get_chat_member", get_chat_member)
+    monkeypatch.setattr(bot_main, "_get_forum_topics", get_forum_topics)
+    monkeypatch.setattr(bot_main, "_get_forum_topic", get_forum_topic)
+
+    asyncio.run(bot_main.batch_link(None, message))
+
+    assert len(questions) == 3
+    assert topic_lookups == [77]
+    assert manager.submissions[0][2]["destination_thread_id"] == 77
+    assert manager.submissions[0][2]["destination_folder"] == "Chemistry"
+
+
 def test_set_progress_sticker_saves_replied_animated_sticker(monkeypatch, tmp_path):
     settings_path = tmp_path / "progress_sticker.json"
     monkeypatch.setenv("PROGRESS_STICKER_CONFIG", str(settings_path))

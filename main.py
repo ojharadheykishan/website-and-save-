@@ -820,15 +820,16 @@ async def batch_link(_, message):
                     ),
                     None,
                 )
-                if selected_topic is None and destination_thread_id is not None:
+                direct_topic_id = destination_thread_id or parsed_destination_message
+                if selected_topic is None and direct_topic_id is not None:
                     try:
                         selected_topic = await _get_forum_topic(
-                            target_chat.id, destination_thread_id
+                            target_chat.id, direct_topic_id
                         )
                     except Exception:
                         logger.exception(
                             "Could not resolve forum topic %s in destination %s",
-                            destination_thread_id,
+                            direct_topic_id,
                             target_chat.id,
                         )
 
