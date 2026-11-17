@@ -8,6 +8,7 @@ import logging
 import os
 import hashlib
 import time
+import tempfile
 import uuid
 from datetime import datetime
 from pyrogram import filters
@@ -24,6 +25,7 @@ from safe_repo.core.media_links import (
     read_stream_links,
 )
 from safe_repo.web.study import build_public_study_url
+from safe_repo.core.workers import get_worker_manager, register_handler
 
 logger = logging.getLogger(__name__)
 LINK_PROGRESS_STICKERS = ("🎬", "🎞️", "🍿", "📽️", "✨")
@@ -192,6 +194,12 @@ async def download_media_payload(
 ):
     """Download media with a fallback for forwarded files."""
     file_name = build_local_file_name(message)
+    temporary_directory = os.environ.get(
+        "MEDIA_TEMP_DIR",
+        os.path.join(tempfile.gettempdir(), "save-restricted-bot"),
+    )
+    os.makedirs(temporary_directory, exist_ok=True)
+    file_path = os.path.join(temporary_directory, file_name)
     media_file = None
     status_message = progress_message
     if status_message is None and progress_sender and progress_message_id:
@@ -210,11 +218,13 @@ async def download_media_payload(
     )
 
     try:
-        media_file = await client.download_media(
-            message,
-            file_name=file_name,
-            progress=progress_bar if status_message else None,
-            progress_args=progress_args,
+        media_file = await get_worker_manager().run_download(
+            lambda: client.download_media(
+                message,
+                file_name=file_path,
+                progress=progress_bar if status_message else None,
+                progress_args=progress_args,
+            )
         )
     except Exception as error:
         logger.warning("Primary Telegram media download failed: %s", error)
@@ -222,14 +232,22 @@ async def download_media_payload(
 
     if not media_file:
         try:
-            media_file = await message.download(
-                file_name=file_name,
-                progress=progress_bar if status_message else None,
-                progress_args=progress_args,
+            media_file = await get_worker_manager().run_download(
+                lambda: message.download(
+                    file_name=file_path,
+                    progress=progress_bar if status_message else None,
+                    progress_args=progress_args,
+                )
             )
         except Exception as error:
             logger.warning("Fallback Telegram media download failed: %s", error)
             media_file = None
+
+    if not media_file and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            logger.exception("Could not remove partial media download %s", file_path)
 
     if progress_sender and progress_message_id and media_file:
         try:
@@ -250,7 +268,7 @@ async def post_to_stream_channel(message):
     This is the fallback path for forwarded media and very large files when local
     caching is not possible or practical.
     """
-    try:
+    async def post():
         if message is None:
             return None
 
@@ -263,8 +281,8 @@ async def post_to_stream_channel(message):
                     forwarded = await message.forward(STREAM_CHANNEL)
                 if forwarded is not None:
                     break
-            except Exception as inner_error:
-                logger.debug(f"Stream channel {action} attempt failed: {inner_error}")
+            except Exception:
+                logger.exception("Stream channel %s attempt failed", action)
 
         if forwarded is None:
             return None
@@ -276,8 +294,11 @@ async def post_to_stream_channel(message):
             "link": base,
             "embed": base + "?embed=1",
         }
-    except Exception as e:
-        logger.error(f"Stream channel post failed: {e}")
+
+    try:
+        return await get_worker_manager().run_upload(post)
+    except Exception as error:
+        logger.exception("Stream channel post failed: %s", error)
         return None
 
 
@@ -570,14 +591,38 @@ async def handle_direct_media(client, message):
         raise ValueError("The incoming media message has no chat ID.")
     status_message = await app.send_message(
         chat_id,
-        format_progress_bar(15, "Processing media", "Starting download"),
+        format_progress_bar(5, "Queued media", "Waiting for a download worker"),
     )
+    try:
+        await get_worker_manager().submit(
+            "downloads",
+            "direct_media",
+            {
+                "chat_id": chat_id,
+                "message_id": message.id,
+                "status_message_id": status_message.id,
+            },
+        )
+    except Exception as error:
+        logger.exception("Could not enqueue direct media from chat %s", chat_id)
+        await status_message.edit_text(format_failure_message(f"Queue unavailable: {error}"))
+
+
+async def _run_direct_media_job(payload):
+    chat_id = int(payload["chat_id"])
+    message = await app.get_messages(chat_id, int(payload["message_id"]))
+    status_message = await app.get_messages(chat_id, int(payload["status_message_id"]))
+    if not message or not status_message:
+        raise RuntimeError("The queued media or its status message is no longer available.")
     await send_stream_link(
         chat_id,
         message,
         status_message=status_message,
-        client=client,
+        client=app,
     )
+
+
+register_handler("direct_media", _run_direct_media_job)
 
 
 @app.on_message(filters.command("links"))

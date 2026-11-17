@@ -4,7 +4,13 @@
 import asyncio
 import logging
 from pyrogram import Client
-from config import API_ID, API_HASH, BOT_TOKEN
+from config import (
+    API_ID,
+    API_HASH,
+    BOT_TOKEN,
+    MAX_CONCURRENT_TRANSMISSIONS,
+    PYROGRAM_WORKERS,
+)
 
 
 loop = asyncio.get_event_loop()
@@ -23,9 +29,9 @@ if not hasattr(__import__(__name__), 'app'):
         api_id=API_ID,
         api_hash=API_HASH,
         bot_token=BOT_TOKEN,
-        workers=10,  # Reduced from 20 to prevent resource exhaustion
+        workers=PYROGRAM_WORKERS,
         sleep_threshold=180,  # Reduced from 300s to 3 minutes for faster recovery
-        max_concurrent_transmissions=2,  # Allow two transfers without unbounded resource use
+        max_concurrent_transmissions=MAX_CONCURRENT_TRANSMISSIONS,
         no_updates=False  # Ensure we receive all updates
     )
 

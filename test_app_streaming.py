@@ -26,6 +26,26 @@ def test_build_stream_response_uses_attachment_for_download(tmp_path):
     assert "attachment" in response.headers.get("Content-Disposition", "")
 
 
+def test_health_endpoint_tracks_bot_subprocess(monkeypatch):
+    class RunningProcess:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(app_module, "BOT_PROCESS", RunningProcess())
+    response = app.test_client().get("/health")
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "ok", "bot": "running"}
+
+    class StoppedProcess:
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(app_module, "BOT_PROCESS", StoppedProcess())
+    response = app.test_client().get("/health")
+    assert response.status_code == 503
+    assert response.get_json()["status"] == "degraded"
+
+
 def test_player_page_offers_1080p_and_extended_playback_controls(monkeypatch):
     token = "a" * 32
     monkeypatch.setattr(app_module, "get_stream_file", lambda _token: {"file_path": "/tmp/video.mp4"})

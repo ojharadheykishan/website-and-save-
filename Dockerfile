@@ -15,6 +15,7 @@ RUN mkdir -p safe_repo/core/mongo safe_repo/web safe_repo/modules \
 	&& ln -sfn ../../func.py safe_repo/core/func.py \
 	&& ln -sfn ../../get_func.py safe_repo/core/get_func.py \
 	&& ln -sfn ../../media_links.py safe_repo/core/media_links.py \
+	&& ln -sfn ../../workers.py safe_repo/core/workers.py \
 	&& ln -sfn ../../../db.py safe_repo/core/mongo/db.py \
 	&& ln -sfn ../../../plans_db.py safe_repo/core/mongo/plans_db.py \
 	&& ln -sfn ../../../users_db.py safe_repo/core/mongo/users_db.py \

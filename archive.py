@@ -16,6 +16,7 @@ from pyrogram.types import Message
 from safe_repo import app
 from safe_repo.core.func import new_progress_session, progress_bar
 from safe_repo.core.get_func import get_user_chat_id
+from safe_repo.core.workers import get_worker_manager
 
 logger = logging.getLogger(__name__)
 MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
@@ -159,7 +160,9 @@ async def _archive_uploaded_video(message, destination):
 
     status = await message.reply_text("📤 Copying the video to your study group...")
     try:
-        result = await app.copy_message(destination, source.chat.id, source.id)
+        result = await get_worker_manager().run_upload(
+            lambda: app.copy_message(destination, source.chat.id, source.id)
+        )
     except Exception:
         logger.exception("Could not copy an authorized video into the archive group")
         await status.edit_text(
@@ -177,40 +180,46 @@ async def _archive_direct_video(message, destination, url):
     status = await message.reply_text("📥 Fetching the creator-provided video file...")
     file_path = None
     try:
-        file_path, filename = await asyncio.to_thread(_download_direct_video, url)
+        file_path, filename = await get_worker_manager().run_download(
+            lambda: asyncio.to_thread(_download_direct_video, url)
+        )
         size = os.path.getsize(file_path)
         if Path(filename).suffix.lower() in {".mp4", ".m4v", ".mov"}:
-            result = await app.send_video(
-                destination,
-                file_path,
-                file_name=filename,
-                caption=f"📚 Study archive: `{filename}`",
-                supports_streaming=True,
-                progress=progress_bar,
-                progress_args=(
-                    "📤 Uploading video...",
-                    status,
-                    time.time(),
+            result = await get_worker_manager().run_upload(
+                lambda: app.send_video(
+                    destination,
                     file_path,
-                    url,
-                    new_progress_session(),
-                ),
+                    file_name=filename,
+                    caption=f"📚 Study archive: `{filename}`",
+                    supports_streaming=True,
+                    progress=progress_bar,
+                    progress_args=(
+                        "📤 Uploading video...",
+                        status,
+                        time.time(),
+                        file_path,
+                        url,
+                        new_progress_session(),
+                    ),
+                )
             )
         else:
-            result = await app.send_document(
-                destination,
-                file_path,
-                file_name=filename,
-                caption=f"📚 Study archive: `{filename}`",
-                progress=progress_bar,
-                progress_args=(
-                    "📤 Uploading video...",
-                    status,
-                    time.time(),
+            result = await get_worker_manager().run_upload(
+                lambda: app.send_document(
+                    destination,
                     file_path,
-                    url,
-                    new_progress_session(),
-                ),
+                    file_name=filename,
+                    caption=f"📚 Study archive: `{filename}`",
+                    progress=progress_bar,
+                    progress_args=(
+                        "📤 Uploading video...",
+                        status,
+                        time.time(),
+                        file_path,
+                        url,
+                        new_progress_session(),
+                    ),
+                )
             )
         if not result:
             raise RuntimeError("Telegram did not confirm the upload.")

@@ -6,10 +6,12 @@ import re
 import shutil
 import subprocess
 import uuid
+import secrets
+import logging
 from pathlib import Path
 from urllib.parse import urlsplit
 import requests
-from flask import Flask, send_file, abort, redirect, request, render_template_string
+from flask import Flask, send_file, abort, redirect, request, render_template_string, jsonify
 from safe_repo.core.media_links import (
   get_public_base_url,
   get_stream_file,
@@ -20,7 +22,9 @@ from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_lo
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "study-secret-key")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+if not os.environ.get("FLASK_SECRET_KEY"):
+    logging.warning("FLASK_SECRET_KEY is unset; admin sessions will not survive process restarts.")
 QUALITY_HEIGHTS = {"360p": 360, "480p": 480, "720p": 720, "1080p": 1080}
 _quality_lock = threading.Lock()
 
@@ -28,13 +32,16 @@ _quality_lock = threading.Lock()
 AUTO_PING_ENABLED = True
 AUTO_PING_INTERVAL = 300  # 5 minutes in seconds
 APP_URL = None
+BOT_PROCESS = None
+BOT_LAST_EXIT = None
+BOT_SHUTDOWN = threading.Event()
 
 
 def auto_ping():
     """Background task to keep the app awake by pinging itself periodically"""
     while AUTO_PING_ENABLED and APP_URL:
         try:
-            response = requests.get(APP_URL)
+            response = requests.get(APP_URL, timeout=10)
             print(f"Auto-ping successful: {response.status_code}")
         except Exception as e:
             print(f"Auto-ping failed: {str(e)}")
@@ -559,8 +566,20 @@ def study_watch_page(token):
 
 @app.route('/health')
 def health_check():
-    """Health check endpoint for monitoring"""
-    return "OK", 200
+    """Report web and bot subprocess readiness."""
+    process = BOT_PROCESS
+    if process is None:
+        return jsonify({"status": "starting", "bot": "starting"}), 503
+    exit_code = process.poll()
+    if exit_code is not None:
+        return jsonify(
+            {
+                "status": "degraded",
+                "bot": "stopped",
+                "last_exit_code": BOT_LAST_EXIT if BOT_LAST_EXIT is not None else exit_code,
+            }
+        ), 503
+    return jsonify({"status": "ok", "bot": "running"}), 200
 
 
 @app.route('/catalog')
@@ -1036,7 +1055,7 @@ def start_bot_process():
     import subprocess
     import time
     import os
-    import signal
+    global BOT_PROCESS, BOT_LAST_EXIT
 
     lock_file = "/tmp/safe_repo_bot.lock"
 
@@ -1068,19 +1087,53 @@ def start_bot_process():
         with open(lock_file, "w") as f:
             f.write(str(os.getpid()))
 
-        print("Starting safe_repo bot process...")
-        bot_proc = subprocess.Popen(["python3", "-m", "safe_repo"])
-        bot_proc.wait()
-        print(f"safe_repo exited with code {bot_proc.returncode}")
+        restart_delay = 2
+        while not BOT_SHUTDOWN.is_set():
+            print("Starting safe_repo bot process...")
+            BOT_PROCESS = subprocess.Popen(["python3", "-m", "safe_repo"])
+            while BOT_PROCESS.poll() is None and not BOT_SHUTDOWN.wait(1):
+                pass
+
+            if BOT_SHUTDOWN.is_set() and BOT_PROCESS.poll() is None:
+                BOT_PROCESS.terminate()
+                try:
+                    BOT_PROCESS.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    BOT_PROCESS.kill()
+                    BOT_PROCESS.wait()
+                break
+
+            BOT_LAST_EXIT = BOT_PROCESS.returncode
+            print(f"safe_repo exited with code {BOT_LAST_EXIT}; restarting in {restart_delay}s")
+            if BOT_SHUTDOWN.wait(restart_delay):
+                break
+            restart_delay = min(restart_delay * 2, 60)
     except Exception as e:
         print(f"safe_repo launcher error: {e}")
     finally:
+        BOT_PROCESS = None
         # Clean up lock file on exit
         try:
             if os.path.exists(lock_file):
                 os.remove(lock_file)
         except Exception:
             pass
+
+
+def stop_bot_process():
+    BOT_SHUTDOWN.set()
+    process = BOT_PROCESS
+    if process is not None and process.poll() is None:
+        process.terminate()
+        try:
+            shutdown_timeout = max(10, int(os.environ.get("WORKER_SHUTDOWN_TIMEOUT", "30")) + 5)
+        except ValueError:
+            shutdown_timeout = 35
+        try:
+            process.wait(timeout=shutdown_timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
 
 
 if __name__ == "__main__":
@@ -1105,4 +1158,7 @@ if __name__ == "__main__":
 
     # Always start Flask app to provide health check endpoint
     print(f"Starting Flask app on port {port}")
-    app.run(host='0.0.0.0', port=port)
+    try:
+        app.run(host='0.0.0.0', port=port)
+    finally:
+        stop_bot_process()

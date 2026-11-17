@@ -34,6 +34,40 @@ configure `PUBLIC_BASE_URL` for the public player address. If downloading or cac
 bot tries posting to the public stream channel; the bot needs permission to post there. Duplicate
 uploads return their existing link instead of adding another catalog item.
 
+## Background processing and Railway
+
+Single Telegram links, direct media, and `/batch` submissions are accepted into a persistent
+download-task queue. Download jobs and media uploads use separate workers. Their concurrency is
+controlled with `DOWNLOAD_CONCURRENCY` and `UPLOAD_CONCURRENCY`; these default to `2` each and
+must be raised gradually against the Railway plan and Telegram rate limits. Submission is not
+limited per user, but queue capacity is ultimately limited by the attached disk/MongoDB quota and
+Telegram API limits.
+
+Set `MONGODB_URI` (or the legacy `MONGO_DB`) to use the pooled MongoDB task queue. The pool size
+is controlled by `MONGO_MAX_POOL_SIZE`. If the URI is absent or MongoDB cannot be reached at
+startup, the worker logs the problem and uses SQLite at `TASK_QUEUE_DB`; existing JSON user,
+session, and plan files are not migrated or rewritten. For recovery across Railway deployments,
+attach a persistent volume at `/app/data` and set
+`TASK_QUEUE_DB=/app/data/background_tasks.sqlite3`. To keep media files and public catalog links
+on that same volume, also set `STREAM_CACHE_DIR`, `STREAM_LINKS_FILE`, and `STREAM_CATALOG_FILE`
+to paths under `/app/data`. Copy existing catalog/cache files to the volume before changing those
+paths; the bot cannot recover data that Railway has already discarded.
+
+The Railway deployment uses `railway.json`, builds the existing Dockerfile, and checks `/health`.
+The health endpoint returns success only while both the website process and bot subprocess are
+running. The bot subprocess is restarted with backoff after an unexpected exit; SIGTERM drains
+workers for `WORKER_SHUTDOWN_TIMEOUT` seconds before pending jobs are left for recovery. Keep one
+Railway replica with either queue backend; the startup recovery step reclaims tasks marked as
+running. MongoDB provides pooled storage and atomic task claims, but Telegram side effects are
+at-least-once: a process crash immediately after Telegram accepts an upload and before its
+completion/checkpoint is persisted can cause that one item to be retried.
+
+For `/batch`, `YES` asks for a destination and verifies bot membership/posting access, then asks
+for confirmation. `NO` uses the user's saved destination, then `DEFAULT_DESTINATION_ID` if set;
+otherwise it preserves the prior behavior and uses the user's private chat if no destination was
+saved. Set `DEFAULT_DESTINATION_ID` to a supergroup ID to make that the deployment-wide default.
+All runtime variables are listed in `.env.example`; never commit real tokens or connection strings.
+
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to
 fetch and upload an authorized video. Configure the destination with **Settings → Set Chat ID**

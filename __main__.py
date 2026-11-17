@@ -44,8 +44,11 @@ import sys
 import asyncio
 from safe_repo.core.get_func import send_alert
 from config import CLONE_LOG_CHANNEL
+from safe_repo.core.workers import start_workers, stop_workers
 
 async def safe_repo_boot():
+    background_tasks = []
+    app_started = False
     try:
         logger.info(f"Importing {len(ALL_MODULES)} modules...")
         # Track imported modules and prevent re-importing
@@ -59,8 +62,10 @@ async def safe_repo_boot():
         logger.info("»»»» ʙᴏᴛ ᴅᴇᴘʟᴏʏ sᴜᴄᴄᴇssғᴜʟʟʏ ✨ 🎉")
 
         # Start background tasks
-        asyncio.create_task(schedule_expiry_check())
-        asyncio.create_task(keep_alive_task())
+        background_tasks = [
+            asyncio.create_task(schedule_expiry_check(), name="expiry-check"),
+            asyncio.create_task(keep_alive_task(), name="keep-alive"),
+        ]
 
         # Start the Pyrogram client
         # Handle 409 Conflict: if another instance is logged in with the same
@@ -83,6 +88,8 @@ async def safe_repo_boot():
             else:
                 raise
         logger.info("Bot client started successfully")
+        app_started = True
+        await start_workers()
         
         # Send bot start notification
         try:
@@ -95,6 +102,7 @@ async def safe_repo_boot():
         
         await idle()
         logger.info("»» ɢᴏᴏᴅ ʙʏᴇ ! sᴛᴏᴘᴘɪɴɢ ʙᴏᴛ.")
+        await stop_workers()
         
         # Send bot stop notification
         try:
@@ -107,18 +115,18 @@ async def safe_repo_boot():
             logger.error(f"Failed to send bot stop notification: {e}")
         
         await app.stop()
+        app_started = False
     except Exception as e:
-        logger.error(f"Error in bot boot: {e}")
-        # Attempt to restart the bot after 5 seconds
-        logger.info("Attempting to restart bot in 5 seconds...")
-        await asyncio.sleep(5)
-        # Instead of recursive call, just stop and let the outer loop restart
-        try:
-            from safe_repo import app
-            await app.stop()
-        except:
-            pass
+        logger.exception("Error in bot boot: %s", e)
         raise
+    finally:
+        await stop_workers()
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+        if app_started:
+            await app.stop()
 
 if __name__ == "__main__":
     try:

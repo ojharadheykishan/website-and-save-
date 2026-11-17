@@ -22,9 +22,69 @@
       "required": true
     },
     "MONGO_DB": {
-      "description": "Get a MongoDB URL from https://cloud.mongodb.com.",
-      "value": "your_mongodb_url_here",
-      "required": true
+      "description": "Optional MongoDB URI for the durable task queue. SQLite on the mounted disk is used when unset or unavailable.",
+      "value": "",
+      "required": false
+    },
+    "MONGO_DATABASE": {
+      "description": "MongoDB database used for background tasks when MongoDB is configured.",
+      "value": "save_restricted_bot",
+      "required": false
+    },
+    "MONGO_MAX_POOL_SIZE": {
+      "description": "Maximum MongoDB connection pool size.",
+      "value": "20",
+      "required": false
+    },
+    "TASK_QUEUE_DB": {
+      "description": "SQLite queue file path. Set this inside a Railway persistent volume for restart recovery.",
+      "value": "./data/background_tasks.sqlite3",
+      "required": false
+    },
+    "DOWNLOAD_CONCURRENCY": {
+      "description": "Maximum concurrent background download tasks.",
+      "value": "2",
+      "required": false
+    },
+    "UPLOAD_CONCURRENCY": {
+      "description": "Maximum concurrent Telegram media uploads.",
+      "value": "2",
+      "required": false
+    },
+    "TASK_MAX_RETRIES": {
+      "description": "Maximum attempts for recoverable background tasks.",
+      "value": "3",
+      "required": false
+    },
+    "WORKER_SHUTDOWN_TIMEOUT": {
+      "description": "Graceful worker shutdown timeout in seconds.",
+      "value": "30",
+      "required": false
+    },
+    "MEDIA_TEMP_DIR": {
+      "description": "Disk directory used for temporary media downloads.",
+      "value": "/tmp/save-restricted-bot",
+      "required": false
+    },
+    "DEFAULT_DESTINATION_ID": {
+      "description": "Optional default group/supergroup ID used by /batch when the user answers NO.",
+      "value": "",
+      "required": false
+    },
+    "PYROGRAM_WORKERS": {
+      "description": "Pyrogram update-handler worker count.",
+      "value": "10",
+      "required": false
+    },
+    "MAX_CONCURRENT_TRANSMISSIONS": {
+      "description": "Pyrogram transfer concurrency setting.",
+      "value": "2",
+      "required": false
+    },
+    "FLASK_SECRET_KEY": {
+      "description": "Stable random key used to sign website admin sessions.",
+      "value": "",
+      "required": false
     },
     "OWNER_ID": {
       "description": "The user ID of the user whom you would like to add as OWNER.",

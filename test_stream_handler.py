@@ -15,6 +15,21 @@ class DummyMessage:
     video = DummyMedia()
 
 
+def run_direct_media_job(monkeypatch, message):
+    class StatusMessage:
+        id = 789
+
+    async def fake_get_messages(_chat_id, message_id):
+        return message if message_id == 456 else StatusMessage()
+
+    monkeypatch.setattr(stream_module.app, "get_messages", fake_get_messages)
+    asyncio.run(
+        stream_module._run_direct_media_job(
+            {"chat_id": 123, "message_id": 456, "status_message_id": 789}
+        )
+    )
+
+
 def test_build_local_file_name_uses_video_extension():
     filename = build_local_file_name(DummyMessage())
     assert filename.startswith("stream_42_")
@@ -138,6 +153,38 @@ def test_failed_channel_fallback_reports_public_setup_problem(monkeypatch):
         raise AssertionError("Failed fallback should explain why link creation failed.")
 
 
+def test_direct_media_is_persistently_queued(monkeypatch):
+    enqueued = []
+
+    class Message:
+        id = 456
+        chat = type("Chat", (), {"id": 123})()
+        video = object()
+
+    class StatusMessage:
+        id = 789
+
+    class Manager:
+        async def submit(self, queue, handler, payload):
+            enqueued.append((queue, handler, payload))
+
+    async def fake_send_message(_chat_id, _text):
+        return StatusMessage()
+
+    monkeypatch.setattr(stream_module.app, "send_message", fake_send_message)
+    monkeypatch.setattr(stream_module, "get_worker_manager", lambda: Manager())
+
+    asyncio.run(stream_module.handle_direct_media(object(), Message()))
+
+    assert enqueued == [
+        (
+            "downloads",
+            "direct_media",
+            {"chat_id": 123, "message_id": 456, "status_message_id": 789},
+        )
+    ]
+
+
 def test_download_failure_still_tries_channel_link_fallback(monkeypatch, tmp_path):
     updates = []
     appended = []
@@ -198,7 +245,7 @@ def test_download_failure_still_tries_channel_link_fallback(monkeypatch, tmp_pat
     monkeypatch.setattr(stream_module, "append_stream_link", fake_append)
     monkeypatch.setattr(stream_module, "archive_stream_link", fake_archive)
 
-    asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
+    run_direct_media_job(monkeypatch, IncomingMessage())
 
     assert appended == []
     assert any("Trying channel fallback" in update for update in updates)
@@ -244,7 +291,7 @@ def test_duplicate_media_returns_existing_link_without_reposting(monkeypatch):
         lambda *_args: {"player_url": "https://example.com/player/existing"},
     )
 
-    asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
+    run_direct_media_job(monkeypatch, IncomingMessage())
 
     assert any("https://example.com/player/existing" in update for update in updates)
 
@@ -354,7 +401,7 @@ def test_forwarded_media_generates_a_website_link(tmp_path, monkeypatch):
     monkeypatch.setattr(stream_module, "append_stream_link", lambda *args, **kwargs: "archive")
     monkeypatch.setattr(stream_module, "archive_stream_link", fake_archive)
 
-    asyncio.run(stream_module.handle_direct_media(object(), IncomingMessage()))
+    run_direct_media_job(monkeypatch, IncomingMessage())
 
     assert any("https://example.com/player/video" in update for update in updates)
     assert not media_file.exists()

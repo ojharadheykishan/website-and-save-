@@ -6,7 +6,12 @@ import os
 from urllib.parse import urlparse
 from pyrogram import filters, Client
 from safe_repo import app
-from config import API_ID, API_HASH
+from config import (
+    API_ID,
+    API_HASH,
+    DEFAULT_DESTINATION_ID,
+    MAX_CONCURRENT_TRANSMISSIONS,
+)
 from safe_repo.core.get_func import (
     get_msg,
     get_user_chat_id,
@@ -31,6 +36,7 @@ from pyrogram.errors import FloodWait, SessionRevoked, AuthKeyDuplicated, AuthKe
 from safe_repo.core import script
 from safe_repo.core.media_links import get_public_base_url
 from safe_repo.web.study import build_public_study_url, load_catalog_entries
+from safe_repo.core.workers import get_worker_manager, register_handler
 import logging
 import re
 
@@ -58,41 +64,28 @@ async def single_link(_, message):
         await message.reply_text("Please send a valid Telegram message link.")
         return
 
-    lock = link_queue_locks.setdefault(user_id, asyncio.Lock())
-    waiting = lock.locked()
-    if waiting:
-        link_queue_waiters[user_id] = link_queue_waiters.get(user_id, 0) + 1
-    task = asyncio.current_task()
-    link_queue_tasks.setdefault(user_id, set()).add(task)
-    queue_status = await message.reply_text(
-        f"⏳ Added to your queue (position {link_queue_waiters.get(user_id, 0) + 1})."
-        if waiting else "⏳ Preparing your media..."
-    )
-
+    queue_status = await message.reply_text("⏳ Adding your media link to the download queue...")
     try:
-        async with lock:
-            if waiting:
-                link_queue_waiters[user_id] = max(0, link_queue_waiters.get(user_id, 1) - 1)
-                waiting = False
-            await queue_status.edit_text("Processing...")
-            await _process_single_link(_, message, link, queue_status)
-    except asyncio.CancelledError:
-        try:
-            await queue_status.edit_text("🛑 This queued media task was cancelled.")
-        except Exception:
-            pass
-        raise
-    finally:
-        if waiting:
-            link_queue_waiters[user_id] = max(0, link_queue_waiters.get(user_id, 1) - 1)
-        tasks = link_queue_tasks.get(user_id)
-        if tasks:
-            tasks.discard(task)
-            if not tasks:
-                link_queue_tasks.pop(user_id, None)
-        if not lock.locked() and not link_queue_waiters.get(user_id):
-            link_queue_locks.pop(user_id, None)
-            link_queue_waiters.pop(user_id, None)
+        manager = get_worker_manager()
+        await manager.submit(
+            "downloads",
+            "single_link",
+            {
+                "user_id": user_id,
+                "chat_id": message.chat.id,
+                "request_message_id": message.id,
+                "status_message_id": queue_status.id,
+                "link": link,
+            },
+        )
+        counts = await manager.counts(user_id)
+        await queue_status.edit_text(
+            f"⏳ Added to your queue. {counts['pending']} waiting; "
+            f"{counts['running']} processing."
+        )
+    except Exception as error:
+        logger.exception("Could not enqueue single-link task for user %s", user_id)
+        await queue_status.edit_text(f"⚠️ Could not queue this link: {error}")
 
 
 async def _process_single_link(client, message, link, status_message):
@@ -114,7 +107,7 @@ async def _process_single_link(client, message, link, status_message):
                     api_id=API_ID,
                     api_hash=API_HASH,
                     session_string=session,
-                    max_concurrent_transmissions=2,
+                    max_concurrent_transmissions=MAX_CONCURRENT_TRANSMISSIONS,
                 )
                 await userbot.start()                
             except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
@@ -161,18 +154,35 @@ async def _process_single_link(client, message, link, status_message):
 
 users_loop = {}
 link_queue_locks = {}
-link_queue_waiters = {}
-link_queue_tasks = {}
+
+
+async def _run_single_link_job(payload):
+    user_id = int(payload["user_id"])
+    chat_id = int(payload["chat_id"])
+    request_message = await app.get_messages(chat_id, int(payload["request_message_id"]))
+    status_message = await app.get_messages(chat_id, int(payload["status_message_id"]))
+    if not request_message or not status_message:
+        raise RuntimeError("The queued request or its status message is no longer available.")
+    lock = link_queue_locks.setdefault(user_id, asyncio.Lock())
+    try:
+        async with lock:
+            await status_message.edit_text("Processing...")
+            await _process_single_link(app, request_message, payload["link"], status_message)
+    finally:
+        if not lock.locked():
+            link_queue_locks.pop(user_id, None)
+
+
+register_handler("single_link", _run_single_link_job)
 
 
 @app.on_message(filters.command("queue") & filters.private)
 async def show_queue(_, message):
     user_id = message.from_user.id if message.from_user else message.chat.id
-    active = bool(link_queue_locks.get(user_id) and link_queue_locks[user_id].locked())
-    waiting = link_queue_waiters.get(user_id, 0)
+    counts = await get_worker_manager().counts(user_id)
     await message.reply_text(
-        f"📥 Link queue: {waiting} waiting"
-        + ("; 1 processing." if active else "; idle.")
+        f"📥 Link queue: {counts['pending']} waiting; "
+        f"{counts['running']} processing; {counts['failed']} failed."
     )
 
 
@@ -624,78 +634,222 @@ async def batch_link(_, message):
                 target_reference = group_ref
         try:
             target_chat = await app.get_chat(target_reference)
+            bot_user = await app.get_me()
+            membership = await app.get_chat_member(target_chat.id, bot_user.id)
         except Exception as e:
             logger.warning(f"Could not resolve batch destination: {e}")
             await app.send_message(
                 message.chat.id,
-                "I couldn't access that destination. Add the bot with posting permission, then send its link or chat ID.",
+                "I couldn't verify that destination. Add the bot with posting permission, then send its link or chat ID.",
             )
             return
 
         if str(target_chat.type).lower().split(".")[-1] not in {"group", "supergroup", "channel"}:
             await app.send_message(message.chat.id, "That link does not point to a group or channel. Batch cancelled.")
             return
+        member_status = str(getattr(membership, "status", "")).lower().rsplit(".", 1)[-1]
+        if member_status in {"left", "kicked"}:
+            await app.send_message(
+                message.chat.id,
+                "The bot is not a member of that destination. Add it with permission to post and try again.",
+            )
+            return
+        if member_status == "restricted" and not getattr(membership, "can_send_messages", False):
+            await app.send_message(
+                message.chat.id,
+                "The bot cannot send messages in that destination. Update its permissions and try again.",
+            )
+            return
+        if str(target_chat.type).lower().split(".")[-1] == "channel":
+            privileges = getattr(membership, "privileges", None)
+            if member_status not in {"administrator", "owner"} or not getattr(
+                privileges, "can_post_messages", False
+            ):
+                await app.send_message(
+                    message.chat.id,
+                    "The bot must be a channel admin with permission to post messages.",
+                )
+                return
         destination_chat_id = target_chat.id
+        topic_label = (
+            f"\nForum topic message: `{destination_thread_id}`"
+            if destination_thread_id is not None
+            else ""
+        )
+        await app.send_message(
+            message.chat.id,
+            f"✅ Destination verified: **{target_chat.title or target_chat.id}** "
+            f"(`{target_chat.id}`){topic_label}",
+        )
+        confirmation = await app.ask(
+            message.chat.id,
+            text="Confirm this batch destination? Reply yes to continue or no to cancel.",
+            timeout=300,
+        )
+        if (confirmation.text or "").strip().lower() not in {"y", "yes"}:
+            await app.send_message(message.chat.id, "Batch cancelled; no media was queued.")
+            return
     elif choice not in {"n", "no"}:
         await app.send_message(message.chat.id, "Please reply y/yes or n/no. Start /batch again to retry.")
         return
+    else:
+        destination_chat_id = get_user_chat_id(user_id, DEFAULT_DESTINATION_ID)
+        if destination_chat_id is not None:
+            try:
+                default_chat = await app.get_chat(destination_chat_id)
+                bot_user = await app.get_me()
+                membership = await app.get_chat_member(default_chat.id, bot_user.id)
+            except Exception:
+                logger.exception("Could not verify the default batch destination for user %s", user_id)
+                await app.send_message(
+                    message.chat.id,
+                    "The saved/default destination is inaccessible. Update `/settings` or set DEFAULT_DESTINATION_ID.",
+                )
+                return
+            default_type = str(default_chat.type).lower().split(".")[-1]
+            member_status = str(getattr(membership, "status", "")).lower().rsplit(".", 1)[-1]
+            if (
+                default_type not in {"group", "supergroup", "channel"}
+                or member_status in {"left", "kicked"}
+                or (
+                    default_type == "channel"
+                    and (
+                        member_status not in {"administrator", "owner"}
+                        or not getattr(getattr(membership, "privileges", None), "can_post_messages", False)
+                    )
+                )
+            ):
+                await app.send_message(
+                    message.chat.id,
+                    "The saved/default destination is not a group where the bot can post. Update `/settings` or DEFAULT_DESTINATION_ID.",
+                )
+                return
+            destination_chat_id = default_chat.id
+            await app.send_message(
+                message.chat.id,
+                f"📥 Using your saved/default destination: **{default_chat.title or default_chat.id}**.",
+            )
+        else:
+            await app.send_message(
+                message.chat.id,
+                "No default group is configured; using your saved output destination, or this private chat if none is saved.",
+            )
 
     # Calculate total media to process
     total_messages = cl - cs + 1
-    await app.send_message(message.chat.id, f"Total messages to process: {total_messages}")
-
-    userbot = None
-    processed_count = 0
-    failed_message_ids = []
+    status_message = await app.send_message(
+        message.chat.id,
+        f"⏳ Batch added to the download queue: {total_messages} message(s).",
+    )
     try:     
-        data = await db.get_data(user_id)
-        
-        if data and data.get("session"):
-            session = data.get("session")
+        await get_worker_manager().submit(
+            "downloads",
+            "batch_link",
+            {
+                "user_id": user_id,
+                "chat_id": message.chat.id,
+                "request_message_id": message.id,
+                "status_message_id": status_message.id,
+                "start_link": start_id,
+                "start_message_id": cs,
+                "end_message_id": cl,
+                "destination_chat_id": destination_chat_id,
+                "destination_thread_id": destination_thread_id,
+            },
+        )
+        counts = await get_worker_manager().counts(user_id)
+        await status_message.edit_text(
+            f"⏳ Batch queued: {total_messages} message(s). "
+            f"{counts['pending']} waiting; {counts['running']} processing."
+        )
+    except Exception as error:
+        logger.exception("Could not enqueue batch for user %s", user_id)
+        await status_message.edit_text(f"⚠️ Could not queue this batch: {error}")
+
+
+async def _run_batch_link_job(payload):
+    user_id = int(payload["user_id"])
+    chat_id = int(payload["chat_id"])
+    request_message = await app.get_messages(chat_id, int(payload["request_message_id"]))
+    if not request_message:
+        raise RuntimeError("The queued batch request is no longer available.")
+    status_message = await app.get_messages(chat_id, int(payload["status_message_id"]))
+    if not status_message:
+        status_message = await app.send_message(chat_id, "📦 Resuming your queued batch...")
+
+    lock = link_queue_locks.setdefault(user_id, asyncio.Lock())
+    try:
+        async with lock:
+            await status_message.edit_text("📦 Batch started...")
+            users_loop[user_id] = True
+            start_id = payload["start_link"]
+            start_message_id = int(payload.get("next_message_id", payload["start_message_id"]))
+            end_message_id = int(payload["end_message_id"])
+            total_messages = end_message_id - int(payload["start_message_id"]) + 1
+            destination_chat_id = payload.get("destination_chat_id")
+            destination_thread_id = payload.get("destination_thread_id")
+            processed_count = int(payload.get("processed_count", 0))
+            failed_message_ids = [
+                int(message_id)
+                for message_id in payload.get("failed_message_ids", [])
+            ]
+            userbot = None
+
             try:
+                data = await db.get_data(user_id)
+                session = data.get("session") if data else None
+                if not session:
+                    await status_message.edit_text("Login in bot first ...")
+                    return
+
                 userbot = Client(
                     ":userbot:",
                     api_id=API_ID,
                     api_hash=API_HASH,
                     session_string=session,
-                    max_concurrent_transmissions=2,
+                    max_concurrent_transmissions=MAX_CONCURRENT_TRANSMISSIONS,
                 )
-                await userbot.start()                
-            except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
-                return await app.send_message(message.chat.id, "Your login expired ... /login again")
-            except Exception as e:
-                logger.error(f"Session start error: {e}")
-                return await app.send_message(message.chat.id, "Failed to start session. Please try again.")
-        else:
-            await app.send_message(message.chat.id, "Login in bot first ...")
-            return
+                try:
+                    await userbot.start()
+                except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
+                    await status_message.edit_text("Your login expired ... /login again")
+                    return
+                except Exception as error:
+                    logger.exception("Batch user session start failed for %s", user_id)
+                    await status_message.edit_text(f"Failed to start session: {error}")
+                    return
 
-        try:
-            users_loop[user_id] = True
-            
-            for i in range(int(s), int(l) + 1):
-                if user_id in users_loop and users_loop[user_id]:
+                for message_id in range(start_message_id, end_message_id + 1):
+                    if not users_loop.get(user_id):
+                        break
                     msg = await app.send_message(
-                        message.chat.id,
+                        chat_id,
                         f"📦 Batch progress: {processed_count}/{total_messages} complete\n"
-                        f"Current message: {i}\nFailed: {len(failed_message_ids)}",
+                        f"Current message: {message_id}\nFailed: {len(failed_message_ids)}",
                     )
+                    url = start_id
                     try:
-                        # Rebuild the link for batch iteration while preserving
-                        # supergroup topic/thread context from the start link.
-                        b_chat, b_start, b_thread, b_story = parse_telegram_link(start_id)
+                        b_chat, _, b_thread, b_story = parse_telegram_link(start_id)
                         if b_story or b_chat is None:
                             url = start_id
                         elif b_thread is not None:
-                            url = f"https://t.me/c/{b_chat}/{b_thread}/{i}" if isinstance(b_chat, int) else f"https://t.me/{b_chat}/{b_thread}/{i}"
+                            url = (
+                                f"https://t.me/c/{b_chat}/{b_thread}/{message_id}"
+                                if isinstance(b_chat, int)
+                                else f"https://t.me/{b_chat}/{b_thread}/{message_id}"
+                            )
                         else:
-                            url = f"https://t.me/c/{b_chat}/{i}" if isinstance(b_chat, int) else f"https://t.me/{b_chat}/{i}"
+                            url = (
+                                f"https://t.me/c/{b_chat}/{message_id}"
+                                if isinstance(b_chat, int)
+                                else f"https://t.me/{b_chat}/{message_id}"
+                            )
 
                         result = "retry"
                         for attempt in range(3):
                             if attempt:
                                 await msg.edit_text(
-                                    f"⚠️ Retrying message {i} ({attempt}/2)\n"
+                                    f"⚠️ Retrying message {message_id} ({attempt}/2)\n"
                                     f"Batch progress: {processed_count}/{total_messages} complete"
                                 )
                                 await asyncio.sleep(2 ** (attempt - 1))
@@ -705,7 +859,7 @@ async def batch_link(_, message):
                                 msg.id,
                                 url,
                                 0,
-                                message,
+                                request_message,
                                 True,
                                 destination_chat_id,
                                 destination_thread_id,
@@ -716,72 +870,73 @@ async def batch_link(_, message):
                         if result == "success":
                             processed_count += 1
                         else:
-                            failed_message_ids.append(i)
+                            failed_message_ids.append(message_id)
                         await msg.edit_text(
                             f"📦 Batch progress: {processed_count + len(failed_message_ids)}/"
                             f"{total_messages} processed\n"
                             f"✅ Successful: {processed_count}\n"
                             f"⚠️ Failed: {len(failed_message_ids)}"
                         )
-                        sleep_msg = await app.send_message(message.chat.id, "Sleeping for 10 seconds to avoid flood...")
-                        await asyncio.sleep(8)
-                        await sleep_msg.delete()
-                        await asyncio.sleep(2)                                                
-                    except Exception as e:
-                        logger.error(f"Error processing link {url}: {e}")
-                        await app.send_message(message.chat.id, f"Error processing link {url}: {str(e)}")
-                        continue
-                else:
-                    break
-        except Exception as e:
-            logger.error(f"Batch processing error: {e}")
-            await app.send_message(message.chat.id, f"Error: {str(e)}")
-                     
-    except FloodWait as fw:
-        await app.send_message(message.chat.id, f'Try again after {fw.x} seconds due to floodwait from Telegram.')
-    except Exception as e:
-        logger.error(f"Main batch error: {e}")
-        await app.send_message(message.chat.id, f"Error: {str(e)}")
+                        await asyncio.sleep(10)
+                    except Exception as error:
+                        logger.exception("Batch message %s failed for user %s", message_id, user_id)
+                        if message_id not in failed_message_ids:
+                            failed_message_ids.append(message_id)
+                        await app.send_message(chat_id, f"Error processing link {url}: {error}")
+                    payload.update(
+                        next_message_id=message_id + 1,
+                        processed_count=processed_count,
+                        failed_message_ids=failed_message_ids,
+                    )
+                    await get_worker_manager().checkpoint(payload["_task_id"], payload)
+
+                failed_summary = (
+                    "\n❌ Failed message IDs: " + ", ".join(map(str, failed_message_ids[:50]))
+                    if failed_message_ids else ""
+                )
+                if len(failed_message_ids) > 50:
+                    failed_summary += f" (and {len(failed_message_ids) - 50} more)"
+                await app.send_message(
+                    chat_id,
+                    f"✅ **Batch Processing Complete!**\n\n"
+                    f"📦 Total processed: {processed_count + len(failed_message_ids)}/{total_messages}\n"
+                    f"✅ Successful: {processed_count}\n"
+                    f"❌ Failed: {len(failed_message_ids)}"
+                    f"{failed_summary}\n\n__**Powered by safe_repo**__",
+                )
+            except FloodWait as error:
+                await app.send_message(
+                    chat_id,
+                    f"Try again after {error.x} seconds due to floodwait from Telegram.",
+                )
+            except Exception:
+                logger.exception("Batch processing failed for user %s", user_id)
+                raise
+            finally:
+                if userbot:
+                    try:
+                        await userbot.stop()
+                    except Exception:
+                        logger.exception("Could not stop batch user session for %s", user_id)
+                users_loop.pop(user_id, None)
     finally:
-        # Ensure userbot is properly disconnected
-        if userbot:
-            try:
-                await userbot.stop()
-            except:
-                pass
-        users_loop.pop(user_id, None)
-        
-        # Show completion message after batch processing
-        if processed_count or failed_message_ids:
-            failed_summary = (
-                "\n❌ Failed message IDs: " + ", ".join(map(str, failed_message_ids[:50]))
-                if failed_message_ids else ""
-            )
-            if len(failed_message_ids) > 50:
-                failed_summary += f" (and {len(failed_message_ids) - 50} more)"
-            await app.send_message(
-                message.chat.id,
-                f"✅ **Batch Processing Complete!**\n\n"
-                f"📦 Total processed: {processed_count + len(failed_message_ids)}/{total_messages}\n"
-                f"✅ Successful: {processed_count}\n"
-                f"❌ Failed: {len(failed_message_ids)}"
-                f"{failed_summary}\n\n__**Powered by safe_repo**__",
-            )
+        if not lock.locked():
+            link_queue_locks.pop(user_id, None)
+
+
+register_handler("batch_link", _run_batch_link_job)
 
 
 @app.on_message(filters.command("cancel"))
 async def stop_batch(_, message):
     user_id = message.from_user.id if message.from_user else message.chat.id
-    queued_tasks = set(link_queue_tasks.get(user_id, set()))
-    for task in queued_tasks:
-        task.cancel()
-    if queued_tasks:
-        await app.send_message(
-            message.chat.id,
-            f"🛑 Cancelled {len(queued_tasks)} active/queued link task(s).",
-        )
+    cancelled = await get_worker_manager().cancel_user(user_id)
     if user_id in users_loop:
         users_loop[user_id] = False
-        await app.send_message(message.chat.id, "Batch processing stopped.")
-    elif not queued_tasks:
-        await app.send_message(message.chat.id, "No active batch processing to stop.")
+    if cancelled or user_id in users_loop:
+        await app.send_message(
+            message.chat.id,
+            f"🛑 Cancelled {cancelled} queued task(s). The active batch will stop after its current item.",
+        )
+    else:
+        await app.send_message(message.chat.id, "No queued or active batch processing to stop.")

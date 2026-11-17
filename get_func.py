@@ -22,6 +22,7 @@ from safe_repo.core.func import (
     new_progress_session,
 )
 from safe_repo.core.mongo import db
+from safe_repo.core.workers import get_worker_manager
 from config import LOG_GROUP, CLONE_LOG_CHANNEL
 
 # Configure logging
@@ -53,16 +54,20 @@ async def log_clone_operation(client, message, operation, user_id, file_path=Non
         if file_path and os.path.exists(file_path):
             # Send file copy to clone log channel
             if message.media == MessageMediaType.PHOTO:
-                await app.send_photo(
-                    chat_id=CLONE_LOG_CHANNEL,
-                    photo=file_path,
-                    caption=f"📁 **Clone Operation:** {operation}\n👤 **User ID:** {user_id}\n📄 **File:** `{os.path.basename(file_path)}`\n📦 **Size:** {humanbytes(os.path.getsize(file_path))}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096"
+                await get_worker_manager().run_upload(
+                    lambda: app.send_photo(
+                        chat_id=CLONE_LOG_CHANNEL,
+                        photo=file_path,
+                        caption=f"📁 **Clone Operation:** {operation}\n👤 **User ID:** {user_id}\n📄 **File:** `{os.path.basename(file_path)}`\n📦 **Size:** {humanbytes(os.path.getsize(file_path))}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096",
+                    )
                 )
             elif message.media == MessageMediaType.DOCUMENT or message.media == MessageMediaType.VIDEO:
-                await app.send_document(
-                    chat_id=CLONE_LOG_CHANNEL,
-                    document=file_path,
-                    caption=f"📁 **Clone Operation:** {operation}\n👤 **User ID:** {user_id}\n📄 **File:** `{os.path.basename(file_path)}`\n📦 **Size:** {humanbytes(os.path.getsize(file_path))}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096"
+                await get_worker_manager().run_upload(
+                    lambda: app.send_document(
+                        chat_id=CLONE_LOG_CHANNEL,
+                        document=file_path,
+                        caption=f"📁 **Clone Operation:** {operation}\n👤 **User ID:** {user_id}\n📄 **File:** `{os.path.basename(file_path)}`\n📦 **Size:** {humanbytes(os.path.getsize(file_path))}\n\nBy Radhey Kishan Ojha\n📞 https://t.me/Radheyojha096",
+                    )
                 )
             else:
                 await app.send_message(
@@ -210,25 +215,29 @@ async def get_msg(
                 try:
                     if destination_thread_id is not None:
                         raise ValueError("Topic destinations require an upload")
-                    forwarded = await userbot.forward_messages(target_chat_id, chat, msg_id)
+                    forwarded = await get_worker_manager().run_upload(
+                        lambda: userbot.forward_messages(target_chat_id, chat, msg_id)
+                    )
                     if isinstance(forwarded, list):
                         forwarded = forwarded[0] if forwarded else None
                     if forwarded:
                         try:
-                            file = await asyncio.wait_for(
-                                userbot.download_media(
-                                    msg,
-                                    progress=progress_bar,
-                                    progress_args=(
-                                        "📥 Downloading media for website link...",
-                                        edit,
-                                        time.time(),
-                                        "",
-                                        msg_link,
-                                        new_progress_session(),
+                            file = await get_worker_manager().run_download(
+                                lambda: asyncio.wait_for(
+                                    userbot.download_media(
+                                        msg,
+                                        progress=progress_bar,
+                                        progress_args=(
+                                            "📥 Downloading media for website link...",
+                                            edit,
+                                            time.time(),
+                                            "",
+                                            msg_link,
+                                            new_progress_session(),
+                                        ),
                                     ),
-                                ),
-                                timeout=3600,
+                                    timeout=3600,
+                                )
                             )
                             if file:
                                 await trigger_stream_link_notifications(
@@ -276,20 +285,22 @@ async def get_msg(
 
                 for attempt in range(max_retries):
                     try:
-                        file = await asyncio.wait_for(
-                            userbot.download_media(
-                                msg,
-                                progress=progress_bar,
-                                progress_args=(
-                                    "**📥 Downloading...**\n",
-                                    edit,
-                                    time.time(),
-                                    "",
-                                    msg_link,
-                                    new_progress_session(),
+                        file = await get_worker_manager().run_download(
+                            lambda: asyncio.wait_for(
+                                userbot.download_media(
+                                    msg,
+                                    progress=progress_bar,
+                                    progress_args=(
+                                        "**📥 Downloading...**\n",
+                                        edit,
+                                        time.time(),
+                                        "",
+                                        msg_link,
+                                        new_progress_session(),
+                                    ),
                                 ),
-                            ),
-                            timeout=3600,
+                                timeout=3600,
+                            )
                         )
                         break
                     except asyncio.TimeoutError:
@@ -372,20 +383,22 @@ async def get_msg(
                 caption = add_download_credit(final_caption)
 
                 try:
-                    safe_repo = await app.send_photo(
-                        chat_id=target_chat_id,
-                        photo=file,
-                        caption=caption,
-                        reply_to_message_id=target_thread_id,
-                        progress=progress_bar,
-                        progress_args=(
-                            '**__Uploading...__**\n',
-                            edit,
-                            time.time(),
-                            file,
-                            msg_link,
-                            new_progress_session(),
-                        ),
+                    safe_repo = await get_worker_manager().run_upload(
+                        lambda: app.send_photo(
+                            chat_id=target_chat_id,
+                            photo=file,
+                            caption=caption,
+                            reply_to_message_id=target_thread_id,
+                            progress=progress_bar,
+                            progress_args=(
+                                '**__Uploading...__**\n',
+                                edit,
+                                time.time(),
+                                file,
+                                msg_link,
+                                new_progress_session(),
+                            ),
+                        )
                     )
                     if msg.pinned_message:
                         try:
@@ -453,38 +466,42 @@ async def get_msg(
 
                 try:
                     if msg.document.mime_type == "application/pdf":
-                        safe_repo = await app.send_document(
-                            chat_id=target_chat_id,
-                            document=file,
-                            caption=caption,
-                            thumb=thumb_path,
-                            reply_to_message_id=target_thread_id,
-                            progress=progress_bar,
-                            progress_args=(
-                                '**`Uploading PDF...`**\n',
-                                edit,
-                                time.time(),
-                                file,
-                                msg_link,
-                                new_progress_session(),
-                            ),
+                        safe_repo = await get_worker_manager().run_upload(
+                            lambda: app.send_document(
+                                chat_id=target_chat_id,
+                                document=file,
+                                caption=caption,
+                                thumb=thumb_path,
+                                reply_to_message_id=target_thread_id,
+                                progress=progress_bar,
+                                progress_args=(
+                                    '**`Uploading PDF...`**\n',
+                                    edit,
+                                    time.time(),
+                                    file,
+                                    msg_link,
+                                    new_progress_session(),
+                                ),
+                            )
                         )
                     else:
-                        safe_repo = await app.send_document(
-                            chat_id=target_chat_id,
-                            document=file,
-                            caption=caption,
-                            thumb=thumb_path,
-                            reply_to_message_id=target_thread_id,
-                            progress=progress_bar,
-                            progress_args=(
-                                '**`Uploading document...`**\n',
-                                edit,
-                                time.time(),
-                                file,
-                                msg_link,
-                                new_progress_session(),
-                            ),
+                        safe_repo = await get_worker_manager().run_upload(
+                            lambda: app.send_document(
+                                chat_id=target_chat_id,
+                                document=file,
+                                caption=caption,
+                                thumb=thumb_path,
+                                reply_to_message_id=target_thread_id,
+                                progress=progress_bar,
+                                progress_args=(
+                                    '**`Uploading document...`**\n',
+                                    edit,
+                                    time.time(),
+                                    file,
+                                    msg_link,
+                                    new_progress_session(),
+                                ),
+                            )
                         )
                     if msg.pinned_message:
                         try:
@@ -549,21 +566,23 @@ async def get_msg(
                 caption = add_download_credit(final_caption)
 
                 try:
-                    safe_repo = await app.send_video(
-                        chat_id=target_chat_id,
-                        video=file,
-                        caption=caption,
-                        thumb=thumb_path,
-                        reply_to_message_id=target_thread_id,
-                        progress=progress_bar,
-                        progress_args=(
-                            '**`Uploading video...`**\n',
-                            edit,
-                            time.time(),
-                            file,
-                            msg_link,
-                            new_progress_session(),
-                        ),
+                    safe_repo = await get_worker_manager().run_upload(
+                        lambda: app.send_video(
+                            chat_id=target_chat_id,
+                            video=file,
+                            caption=caption,
+                            thumb=thumb_path,
+                            reply_to_message_id=target_thread_id,
+                            progress=progress_bar,
+                            progress_args=(
+                                '**`Uploading video...`**\n',
+                                edit,
+                                time.time(),
+                                file,
+                                msg_link,
+                                new_progress_session(),
+                            ),
+                        )
                     )
                     if msg.pinned_message:
                         try:
@@ -607,21 +626,23 @@ async def get_msg(
                 await edit.edit_text("**`Uploading media...`**")
                 caption = add_download_credit(msg.caption)
                 try:
-                    safe_repo = await app.send_document(
-                        chat_id=target_chat_id,
-                        document=file,
-                        caption=caption,
-                        thumb=thumb_path,
-                        reply_to_message_id=target_thread_id,
-                        progress=progress_bar,
-                        progress_args=(
-                            '**`Uploading...`**\n',
-                            edit,
-                            time.time(),
-                            file,
-                            msg_link,
-                            new_progress_session(),
-                        ),
+                    safe_repo = await get_worker_manager().run_upload(
+                        lambda: app.send_document(
+                            chat_id=target_chat_id,
+                            document=file,
+                            caption=caption,
+                            thumb=thumb_path,
+                            reply_to_message_id=target_thread_id,
+                            progress=progress_bar,
+                            progress_args=(
+                                '**`Uploading...`**\n',
+                                edit,
+                                time.time(),
+                                file,
+                                msg_link,
+                                new_progress_session(),
+                            ),
+                        )
                     )
                     if msg.pinned_message:
                         try:
@@ -784,19 +805,23 @@ async def copy_message_with_chat_id(
         caption = add_download_credit(final_caption) if msg.media else final_caption
 
         if msg.media:
-            result = await client.copy_message(
-                target_chat_id,
-                chat_id,
-                message_id,
-                caption=caption,
-                reply_to_message_id=destination_thread_id,
+            result = await get_worker_manager().run_upload(
+                lambda: client.copy_message(
+                    target_chat_id,
+                    chat_id,
+                    message_id,
+                    caption=caption,
+                    reply_to_message_id=destination_thread_id,
+                )
             )
         else:
-            result = await client.copy_message(
-                target_chat_id,
-                chat_id,
-                message_id,
-                reply_to_message_id=destination_thread_id,
+            result = await get_worker_manager().run_upload(
+                lambda: client.copy_message(
+                    target_chat_id,
+                    chat_id,
+                    message_id,
+                    reply_to_message_id=destination_thread_id,
+                )
             )
 
         if not result:
