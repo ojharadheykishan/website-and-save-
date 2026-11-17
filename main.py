@@ -4,7 +4,7 @@ import time
 import asyncio
 import os
 from urllib.parse import urlparse
-from pyrogram import filters, Client
+from pyrogram import filters, Client, raw
 from safe_repo import app
 from config import (
     API_ID,
@@ -43,6 +43,55 @@ import re
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def _get_forum_topics(chat_id):
+    peer = await app.resolve_peer(chat_id)
+    channel_id = getattr(peer, "channel_id", None)
+    access_hash = getattr(peer, "access_hash", None)
+    if channel_id is None or access_hash is None:
+        raise RuntimeError("The destination is not a resolvable supergroup channel.")
+
+    channel = raw.types.InputChannel(
+        channel_id=channel_id,
+        access_hash=access_hash,
+    )
+    result = await app.invoke(
+        raw.functions.channels.GetForumTopics(
+            channel=channel,
+            offset_date=0,
+            offset_id=0,
+            offset_topic=0,
+            limit=100,
+        )
+    )
+    return list(getattr(result, "topics", ()))
+
+
+async def _get_forum_topic(chat_id, topic_id):
+    peer = await app.resolve_peer(chat_id)
+    channel_id = getattr(peer, "channel_id", None)
+    access_hash = getattr(peer, "access_hash", None)
+    if channel_id is None or access_hash is None:
+        raise RuntimeError("The destination is not a resolvable supergroup channel.")
+
+    result = await app.invoke(
+        raw.functions.channels.GetForumTopicsByID(
+            channel=raw.types.InputChannel(
+                channel_id=channel_id,
+                access_hash=access_hash,
+            ),
+            topics=[int(topic_id)],
+        )
+    )
+    return next(
+        (
+            topic
+            for topic in getattr(result, "topics", ())
+            if int(getattr(topic, "id", -1)) == int(topic_id)
+        ),
+        None,
+    )
 
 
 
@@ -607,6 +656,7 @@ async def batch_link(_, message):
 
     destination_chat_id = None
     destination_thread_id = None
+    destination_folder = None
     destination_choice = await app.ask(
         message.chat.id,
         text="Do you want to send all batch media to a group, supergroup, or channel? Reply y or n.",
@@ -622,7 +672,12 @@ async def batch_link(_, message):
             await app.send_message(message.chat.id, "No destination provided. Batch cancelled.")
             return
 
-        parsed_group, _, destination_thread_id, _ = parse_telegram_link(group_ref)
+        (
+            parsed_group,
+            parsed_destination_message,
+            destination_thread_id,
+            _,
+        ) = parse_telegram_link(group_ref)
         target_reference = parsed_group
         if target_reference is None:
             parsed_url = urlparse(group_ref if "://" in group_ref else f"https://{group_ref}")
@@ -671,10 +726,111 @@ async def batch_link(_, message):
                 )
                 return
         destination_chat_id = target_chat.id
+
+        if str(target_chat.type).lower().split(".")[-1] == "supergroup":
+            try:
+                forum_topics = await _get_forum_topics(target_chat.id)
+            except Exception as error:
+                if "CHAT_NOT_FORUM" in str(error).upper():
+                    forum_topics = None
+                else:
+                    logger.exception(
+                        "Could not inspect forum topics in destination %s",
+                        target_chat.id,
+                    )
+                    await app.send_message(
+                        message.chat.id,
+                        "I couldn't verify the destination's forum topics. Check that the bot can access this supergroup, then try again.",
+                    )
+                    return
+
+            if forum_topics is None and destination_thread_id is not None:
+                await app.send_message(
+                    message.chat.id,
+                    "That link includes a forum topic, but this supergroup has no accessible forum topics. Send the supergroup link to use its main chat.",
+                )
+                return
+
+            if forum_topics is not None:
+                topic_candidates = [
+                    topic_id
+                    for topic_id in (destination_thread_id, parsed_destination_message)
+                    if topic_id is not None
+                ]
+                selected_topic = next(
+                    (
+                        topic
+                        for topic in forum_topics
+                        if int(getattr(topic, "id", -1)) in topic_candidates
+                    ),
+                    None,
+                )
+                if selected_topic is None and destination_thread_id is not None:
+                    try:
+                        selected_topic = await _get_forum_topic(
+                            target_chat.id, destination_thread_id
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Could not resolve forum topic %s in destination %s",
+                            destination_thread_id,
+                            target_chat.id,
+                        )
+
+                if selected_topic is None:
+                    topic_options = "\n".join(
+                        f"• `{topic.id}` — {topic.title}"
+                        for topic in forum_topics[:30]
+                    )
+                    if len(forum_topics) > 30:
+                        topic_options += (
+                            f"\n…plus {len(forum_topics) - 30} more; "
+                            "you can enter any topic ID or exact name."
+                        )
+                    if not topic_options:
+                        topic_options = "No forum topics were returned."
+                    topic_response = await app.ask(
+                        message.chat.id,
+                        text=(
+                            f"**{target_chat.title or target_chat.id}** is a forum supergroup.\n"
+                            f"{topic_options}\n\n"
+                            "Reply with a topic ID or exact topic name to place the batch there, "
+                            "or `main` to use the General chat."
+                        ),
+                        timeout=300,
+                    )
+                    topic_choice = (topic_response.text or "").strip()
+                    if topic_choice.lower() not in {"main", "general"}:
+                        selected_topic = next(
+                            (
+                                topic
+                                for topic in forum_topics
+                                if topic_choice == str(getattr(topic, "id", ""))
+                                or topic_choice.casefold()
+                                == str(getattr(topic, "title", "")).casefold()
+                            ),
+                            None,
+                        )
+                        if selected_topic is None:
+                            await app.send_message(
+                                message.chat.id,
+                                "That topic wasn't found. Batch cancelled; start `/batch` again and choose a listed topic ID or name.",
+                            )
+                            return
+
+                if selected_topic is not None:
+                    destination_thread_id = int(selected_topic.id)
+                    destination_folder = str(selected_topic.title).strip()
+
         topic_label = (
-            f"\nForum topic message: `{destination_thread_id}`"
+            f"\nForum topic: **{destination_folder or destination_thread_id}** "
+            f"(`{destination_thread_id}`)"
             if destination_thread_id is not None
-            else ""
+            else (
+                "\nDestination: **General/main chat**"
+                if str(target_chat.type).lower().split(".")[-1] == "supergroup"
+                else ""
+            )
         )
         await app.send_message(
             message.chat.id,
@@ -755,6 +911,7 @@ async def batch_link(_, message):
                 "end_message_id": cl,
                 "destination_chat_id": destination_chat_id,
                 "destination_thread_id": destination_thread_id,
+                "destination_folder": destination_folder,
             },
         )
         counts = await get_worker_manager().counts(user_id)
@@ -788,6 +945,7 @@ async def _run_batch_link_job(payload):
             total_messages = end_message_id - int(payload["start_message_id"]) + 1
             destination_chat_id = payload.get("destination_chat_id")
             destination_thread_id = payload.get("destination_thread_id")
+            destination_folder = payload.get("destination_folder")
             processed_count = int(payload.get("processed_count", 0))
             failed_message_ids = [
                 int(message_id)
@@ -863,6 +1021,7 @@ async def _run_batch_link_job(payload):
                                 True,
                                 destination_chat_id,
                                 destination_thread_id,
+                                destination_folder,
                             )
                             if result != "retry":
                                 break

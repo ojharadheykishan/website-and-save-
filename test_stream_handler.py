@@ -46,6 +46,16 @@ def test_build_local_file_name_falls_back_to_id():
     assert filename.endswith(".mp4")
 
 
+def test_forum_topic_name_overrides_general_website_folder():
+    metadata = stream_module.extract_stream_metadata(
+        DummyMessage(),
+        folder_override="Physics / Chapter 1",
+    )
+
+    assert metadata["folder"] == "Physics / Chapter 1"
+    assert metadata["description"].startswith("Folder: Physics / Chapter 1")
+
+
 def test_has_media_payload_for_forwarded_message():
     class ForwardedMessage:
         forwarded = True
@@ -552,6 +562,7 @@ def test_public_message_copy_targets_selected_forum_topic(monkeypatch):
 
     class Client:
         async def get_messages(self, chat_id, message_id, **kwargs):
+            assert "message_thread_id" not in kwargs
             return SourceMessage()
 
         async def copy_message(self, chat_id, from_chat_id, message_id, **kwargs):
@@ -577,6 +588,7 @@ def test_public_message_copy_targets_selected_forum_topic(monkeypatch):
             "publicgroup",
             10,
             is_batch=True,
+            thread_id=12,
             destination_chat_id=-100987,
             destination_thread_id=55,
         )

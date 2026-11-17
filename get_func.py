@@ -135,7 +135,8 @@ async def get_msg(
     message,
     is_batch=False,
     destination_chat_id=None,
-    destination_thread_id=None):
+    destination_thread_id=None,
+    destination_folder=None):
     edit = ""
     chat = ""
     round_message = False
@@ -168,14 +169,6 @@ async def get_msg(
     chat = parsed_chat
     msg_id = parsed_msg + int(i)
 
-    # Supergroup topic/thread: Pyrogram needs the thread id to fetch the message
-    get_kwargs = {}
-    if thread_id is not None:
-        try:
-            get_kwargs["message_thread_id"] = thread_id
-        except Exception:
-            pass
-
     # Decide whether to fetch via userbot (private channel / bot link) or
     # copy via the bot (public chat). Use the parsed result so that both
     # t.me and telegram.me hosts work identically.
@@ -195,7 +188,7 @@ async def get_msg(
 
         try:
             chatx = message.chat.id
-            msg = await userbot.get_messages(chat, msg_id, **get_kwargs)
+            msg = await userbot.get_messages(chat, msg_id)
 
             if msg.service is not None or msg.empty is not None:
                 logger.warning(f"Message {msg_id} in chat {chat} is service or empty")
@@ -240,20 +233,35 @@ async def get_msg(
                                 )
                             )
                             if file:
+                                if destination_folder:
+                                    await trigger_stream_link_notifications(
+                                        sender, forwarded, file, destination_folder
+                                    )
+                                else:
+                                    await trigger_stream_link_notifications(
+                                        sender, forwarded, file
+                                    )
+                            else:
+                                if destination_folder:
+                                    await trigger_stream_link_notifications(
+                                        sender, forwarded, None, destination_folder
+                                    )
+                                else:
+                                    await trigger_stream_link_notifications(
+                                        sender, forwarded, None
+                                    )
+                        except Exception as link_error:
+                            logger.exception(
+                                "Forwarded media link generation failed: %s", link_error
+                            )
+                            if destination_folder:
                                 await trigger_stream_link_notifications(
-                                    sender, forwarded, file
+                                    sender, forwarded, None, destination_folder
                                 )
                             else:
                                 await trigger_stream_link_notifications(
                                     sender, forwarded, None
                                 )
-                        except Exception as link_error:
-                            logger.exception(
-                                "Forwarded media link generation failed: %s", link_error
-                            )
-                            await trigger_stream_link_notifications(
-                                sender, forwarded, None
-                            )
                         try:
                             await userbot.send_message(
                                 target_chat_id,
@@ -423,7 +431,12 @@ async def get_msg(
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
-                    await trigger_stream_link_notifications(sender, safe_repo, file)
+                    if destination_folder:
+                        await trigger_stream_link_notifications(
+                            sender, safe_repo, file, destination_folder
+                        )
+                    else:
+                        await trigger_stream_link_notifications(sender, safe_repo, file)
                     
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "PHOTO CLONE", sender, file, final_caption))
@@ -526,7 +539,12 @@ async def get_msg(
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
-                    await trigger_stream_link_notifications(sender, safe_repo, file)
+                    if destination_folder:
+                        await trigger_stream_link_notifications(
+                            sender, safe_repo, file, destination_folder
+                        )
+                    else:
+                        await trigger_stream_link_notifications(sender, safe_repo, file)
 
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "DOCUMENT CLONE", sender, file, caption))
@@ -607,7 +625,12 @@ async def get_msg(
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
-                    await trigger_stream_link_notifications(sender, safe_repo, file)
+                    if destination_folder:
+                        await trigger_stream_link_notifications(
+                            sender, safe_repo, file, destination_folder
+                        )
+                    else:
+                        await trigger_stream_link_notifications(sender, safe_repo, file)
 
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "VIDEO CLONE", sender, file, caption))
@@ -667,7 +690,12 @@ async def get_msg(
                         await safe_repo.copy(CLONE_LOG_CHANNEL)
                     except Exception as e:
                         logger.error(f"Failed to copy to CLONE_LOG_CHANNEL: {e}")
-                    await trigger_stream_link_notifications(sender, safe_repo, file)
+                    if destination_folder:
+                        await trigger_stream_link_notifications(
+                            sender, safe_repo, file, destination_folder
+                        )
+                    else:
+                        await trigger_stream_link_notifications(sender, safe_repo, file)
 
                     # Log clone operation
                     asyncio.create_task(log_clone_operation(app, msg, "MEDIA CLONE", sender, file, caption))
@@ -733,25 +761,49 @@ async def get_msg(
             return "retry"
 
 
-async def notify_stream_links(sender, file_path, result_msg=None):
+async def notify_stream_links(
+    sender, file_path, result_msg=None, folder_override=None
+):
     """Generate the website-player response for a completed media transfer."""
-    await share_stream_link(sender, result_msg, file_path)
+    if folder_override:
+        await share_stream_link(
+            sender, result_msg, file_path, folder_override=folder_override
+        )
+    else:
+        await share_stream_link(sender, result_msg, file_path)
 
 
-async def share_stream_link(sender, result_msg, file_path=None):
+async def share_stream_link(
+    sender, result_msg, file_path=None, folder_override=None
+):
     """Send one consistent website-player link for a copied or uploaded media message."""
     try:
         from safe_repo.modules.stream import send_stream_link
         if result_msg is not None:
-            await send_stream_link(sender, result_msg, media_file=file_path)
+            await send_stream_link(
+                sender,
+                result_msg,
+                media_file=file_path,
+                folder_override=folder_override,
+            )
     except Exception as e:
         logger.error(f"share_stream_link error: {e}")
 
 
-async def trigger_stream_link_notifications(sender, result_msg, file_path):
+async def trigger_stream_link_notifications(
+    sender, result_msg, file_path, folder_override=None
+):
     """Generate one website-player response after a media transfer."""
     try:
-        await notify_stream_links(sender, file_path, result_msg=result_msg)
+        if folder_override:
+            await notify_stream_links(
+                sender,
+                file_path,
+                result_msg=result_msg,
+                folder_override=folder_override,
+            )
+        else:
+            await notify_stream_links(sender, file_path, result_msg=result_msg)
     except Exception as e:
         logger.exception("Website player link generation failed: %s", e)
 
@@ -769,15 +821,7 @@ async def copy_message_with_chat_id(
     target_chat_id = destination_chat_id or get_user_chat_id(sender, sender)
 
     try:
-        # For supergroup topics/threads, Pyrogram needs the thread id to fetch
-        get_kwargs = {}
-        if thread_id is not None:
-            try:
-                get_kwargs["message_thread_id"] = thread_id
-            except Exception:
-                pass
-
-        msg = await client.get_messages(chat_id, message_id, **get_kwargs)
+        msg = await client.get_messages(chat_id, message_id)
 
         if getattr(msg, "has_protected_content", False):
             await client.send_message(

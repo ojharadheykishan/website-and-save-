@@ -81,6 +81,11 @@
       "value": "2",
       "required": false
     },
+    "PROGRESS_STICKER_FILE_ID": {
+      "description": "Optional Telegram sticker file_id (available to this bot) shown under transfer progress messages.",
+      "value": "",
+      "required": false
+    },
     "FLASK_SECRET_KEY": {
       "description": "Stable random key used to sign website admin sessions.",
       "value": "",

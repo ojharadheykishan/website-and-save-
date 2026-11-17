@@ -66,7 +66,17 @@ For `/batch`, `YES` asks for a destination and verifies bot membership/posting a
 for confirmation. `NO` uses the user's saved destination, then `DEFAULT_DESTINATION_ID` if set;
 otherwise it preserves the prior behavior and uses the user's private chat if no destination was
 saved. Set `DEFAULT_DESTINATION_ID` to a supergroup ID to make that the deployment-wide default.
-All runtime variables are listed in `.env.example`; never commit real tokens or connection strings.
+For forum supergroups, the bot lists available topics and asks which one to use when the supplied
+link does not identify a topic; a topic ID/link is routed to that topic and is also used as the
+website library folder. Reply `main` to explicitly choose the General chat. The bot needs access
+to the supergroup's topics and permission to post there.
+
+To show an actual animated Telegram sticker beneath each transfer progress message, set
+`PROGRESS_STICKER_FILE_ID` to a sticker `file_id` available to this bot. Unicode emoji in the
+progress text remain as a fallback; a real animated sticker cannot be selected without a valid
+bot-accessible sticker ID. The sticker is sent once per transfer and deleted when the transfer
+reaches 100%. All runtime variables are listed in `.env.example`; never commit real tokens or
+connection strings.
 
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to

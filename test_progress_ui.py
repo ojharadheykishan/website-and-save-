@@ -55,6 +55,49 @@ def test_transfer_progress_edits_message_and_shows_sticker():
     assert session.stickers[0] in message.text
 
 
+def test_transfer_progress_sends_one_real_telegram_sticker(monkeypatch):
+    class StickerMessage:
+        def __init__(self):
+            self.deleted = False
+
+        async def delete(self):
+            self.deleted = True
+
+    class ProgressMessage:
+        def __init__(self):
+            self.text = None
+            self.sent_stickers = []
+            self.sticker_messages = []
+
+        async def edit_text(self, text):
+            self.text = text
+
+        async def reply_sticker(self, sticker):
+            self.sent_stickers.append(sticker)
+            sticker_message = StickerMessage()
+            self.sticker_messages.append(sticker_message)
+            return sticker_message
+
+    monkeypatch.setenv("PROGRESS_STICKER_FILE_ID", "animated-sticker-file-id")
+    message = ProgressMessage()
+    session = ProgressSession()
+
+    asyncio.run(
+        progress_bar(
+            50, 100, "📥 Downloading media...", message, 0, "video.mp4", "", session
+        )
+    )
+    session.last_update = None
+    asyncio.run(
+        progress_bar(
+            100, 100, "📥 Downloading media...", message, 0, "video.mp4", "", session
+        )
+    )
+
+    assert message.sent_stickers == ["animated-sticker-file-id"]
+    assert message.sticker_messages[0].deleted
+
+
 def test_link_extraction_handles_missing_text_and_caption_links():
     class Message:
         text = None

@@ -72,7 +72,7 @@ def get_archive_chat_ids():
     return configured_ids
 
 
-def extract_stream_metadata(message, fallback_title=None):
+def extract_stream_metadata(message, fallback_title=None, folder_override=None):
     """Extract a subject/description/title from an incoming media message."""
     caption = getattr(message, "caption", None) or getattr(message, "text", None) or ""
     caption = str(caption).strip()
@@ -104,6 +104,14 @@ def extract_stream_metadata(message, fallback_title=None):
                     date = datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
                 except ValueError:
                     logger.warning("Ignoring invalid study date metadata: %s", value)
+
+    if folder_override:
+        folder = str(folder_override).strip()[:120] or "General"
+        description_lines = [
+            line for line in description.splitlines()
+            if not line.strip().lower().startswith("folder:")
+        ]
+        description = "\n".join([f"Folder: {folder}", *description_lines]).strip()
 
     return {
         "subject": subject,
@@ -302,7 +310,7 @@ async def post_to_stream_channel(message):
         return None
 
 
-async def build_public_stream_link(message, media_file=None):
+async def build_public_stream_link(message, media_file=None, folder_override=None):
     """Build a public stream link from local cache when possible, else fall back to a Telegram channel post for large or unsupported files."""
     if not is_public_base_url_configured():
         raise RuntimeError("PUBLIC_BASE_URL is not configured for the website player.")
@@ -331,6 +339,7 @@ async def build_public_stream_link(message, media_file=None):
         metadata = extract_stream_metadata(
             message,
             fallback_title=os.path.basename(media_file) if media_file else "Telegram media",
+            folder_override=folder_override,
         )
         content_hash = (
             await asyncio.to_thread(calculate_content_hash, media_file)
@@ -438,11 +447,12 @@ async def archive_stream_link(message, player_url, stream_url, study_url=None):
         logger.warning(f"archive_stream_link failed: {e}")
 
 
-async def prepare_media_link(message, media_file=None):
+async def prepare_media_link(message, media_file=None, folder_override=None):
     """Create one catalogued player link for a downloaded or forwarded media item."""
     metadata = extract_stream_metadata(
         message,
         fallback_title=os.path.basename(media_file) if media_file else "Telegram media",
+        folder_override=folder_override,
     )
     content_hash = (
         await asyncio.to_thread(calculate_content_hash, media_file)
@@ -461,7 +471,12 @@ async def prepare_media_link(message, media_file=None):
             "study_url": None,
         }
 
-    public_link = await build_public_stream_link(message, media_file)
+    if folder_override:
+        public_link = await build_public_stream_link(
+            message, media_file, folder_override=folder_override
+        )
+    else:
+        public_link = await build_public_stream_link(message, media_file)
     if public_link["source"] == "cache":
         catalog_result = await asyncio.to_thread(
             append_stream_link,
@@ -512,6 +527,7 @@ async def send_stream_link(
     media_file=None,
     status_message=None,
     client=None,
+    folder_override=None,
 ):
     """Create and send the website player link using one consistent response."""
     downloaded_here = False
@@ -541,7 +557,16 @@ async def send_stream_link(
                 else "Download nahi hua; public channel par media copy kar rahe hain",
             ),
         )
-        link_task = asyncio.create_task(prepare_media_link(message, media_file))
+        if folder_override:
+            link_task = asyncio.create_task(
+                prepare_media_link(
+                    message, media_file, folder_override=folder_override
+                )
+            )
+        else:
+            link_task = asyncio.create_task(
+                prepare_media_link(message, media_file)
+            )
         frame = 0
         while not link_task.done():
             try:

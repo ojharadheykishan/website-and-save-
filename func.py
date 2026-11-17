@@ -172,6 +172,8 @@ class ProgressSession:
         self.stickers = random.sample(PROGRESS_STICKERS, len(PROGRESS_STICKERS))
         self.sticker_index = 0
         self.last_update = None
+        self.telegram_sticker_message = None
+        self.telegram_sticker_attempted = False
 
     def next_sticker(self) -> str:
         if self.sticker_index >= len(self.stickers):
@@ -331,6 +333,21 @@ async def progress_bar(current, total, *args):
         )
 
         await message.edit_text(text=text)
+        sticker_file_id = os.environ.get("PROGRESS_STICKER_FILE_ID", "").strip()
+        if sticker_file_id and not session.telegram_sticker_attempted:
+            session.telegram_sticker_attempted = True
+            try:
+                session.telegram_sticker_message = await message.reply_sticker(
+                    sticker_file_id
+                )
+            except Exception:
+                logger.exception("Could not send the configured progress sticker.")
+        if percentage >= 100 and session.telegram_sticker_message is not None:
+            try:
+                await session.telegram_sticker_message.delete()
+            except Exception:
+                logger.exception("Could not remove the completed progress sticker.")
+            session.telegram_sticker_message = None
         session.last_update = now
     except Exception as e:
         logger.exception("Progress bar update failed: %s", e)
