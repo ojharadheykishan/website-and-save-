@@ -86,6 +86,11 @@
       "value": "",
       "required": false
     },
+    "PROGRESS_STICKER_CONFIG": {
+      "description": "Persistent JSON path for the sticker selected with /setprogresssticker; put it on a persistent volume.",
+      "value": "./data/progress_sticker.json",
+      "required": false
+    },
     "FLASK_SECRET_KEY": {
       "description": "Stable random key used to sign website admin sessions.",
       "value": "",

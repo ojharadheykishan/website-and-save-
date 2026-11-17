@@ -11,6 +11,7 @@ from config import (
     API_HASH,
     DEFAULT_DESTINATION_ID,
     MAX_CONCURRENT_TRANSMISSIONS,
+    OWNER_ID,
 )
 from safe_repo.core.get_func import (
     get_msg,
@@ -30,7 +31,7 @@ from safe_repo.core.get_func import (
     set_rename_command,
 )
 from safe_repo.core.func import *
-from safe_repo.core.func import parse_telegram_link
+from safe_repo.core.func import parse_telegram_link, set_progress_sticker_file_id
 from safe_repo.core.mongo import db
 from pyrogram.errors import FloodWait, SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered
 from safe_repo.core import script
@@ -43,6 +44,60 @@ import re
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+@app.on_message(
+    filters.command("setprogresssticker")
+    & filters.private
+    & filters.user(OWNER_ID)
+)
+async def set_progress_sticker(_, message):
+    command_parts = (message.text or "").split(maxsplit=1)
+    if len(command_parts) == 2 and command_parts[1].strip().lower() in {
+        "off",
+        "disable",
+    }:
+        try:
+            set_progress_sticker_file_id(None)
+        except OSError as error:
+            logger.exception("Could not save disabled progress sticker setting.")
+            await message.reply_text(f"Could not save the setting: {error}")
+            return
+        await message.reply_text("Progress sticker disabled.")
+        return
+
+    sticker_message = getattr(message, "reply_to_message", None)
+    sticker = getattr(sticker_message, "sticker", None)
+    if sticker is None:
+        await message.reply_text(
+            "Reply to an animated Telegram sticker with `/setprogresssticker`.\n"
+            "To disable it, send `/setprogresssticker off`."
+        )
+        return
+    if not (getattr(sticker, "is_animated", False) or getattr(sticker, "is_video", False)):
+        await message.reply_text(
+            "That is a static sticker. Reply to an animated (TGS) or video (WEBM) sticker."
+        )
+        return
+
+    file_id = getattr(sticker, "file_id", None)
+    if not file_id:
+        await message.reply_text("Telegram did not provide a sticker file ID.")
+        return
+
+    try:
+        set_progress_sticker_file_id(file_id)
+    except OSError as error:
+        logger.exception("Could not persist the progress sticker setting.")
+        await message.reply_text(
+            f"Sticker received, but its setting could not be saved: {error}\n"
+            "Check the progress-sticker settings path and Railway volume access."
+        )
+        return
+    await message.reply_text(
+        "✅ Animated progress sticker saved. It will appear under transfer progress "
+        "messages and will be removed when the transfer completes."
+    )
 
 
 async def _get_forum_topics(chat_id):

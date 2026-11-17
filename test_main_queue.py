@@ -202,3 +202,28 @@ def test_forum_topic_listing_uses_pyrogram_raw_topics_request(monkeypatch):
     result = asyncio.run(bot_main._get_forum_topics(-100654))
 
     assert result == topics
+
+
+def test_set_progress_sticker_saves_replied_animated_sticker(monkeypatch, tmp_path):
+    settings_path = tmp_path / "progress_sticker.json"
+    monkeypatch.setenv("PROGRESS_STICKER_CONFIG", str(settings_path))
+    sticker_message = SimpleNamespace(
+        sticker=SimpleNamespace(
+            file_id="bot-specific-animated-file-id",
+            is_animated=True,
+            is_video=False,
+        )
+    )
+    replies = []
+    message = SimpleNamespace(
+        text="/setprogresssticker",
+        reply_to_message=sticker_message,
+        reply_text=lambda text: asyncio.sleep(0, result=replies.append(text)),
+    )
+
+    asyncio.run(bot_main.set_progress_sticker(None, message))
+
+    from func import get_progress_sticker_file_id
+
+    assert get_progress_sticker_file_id() == "bot-specific-animated-file-id"
+    assert "saved" in replies[0].lower()

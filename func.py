@@ -2,12 +2,14 @@
 
 
 import math
+import json
 import os
 import random
 import time
 import re
 import logging
 import tempfile
+from pathlib import Path
 from pyrogram import enums
 from config import CHANNEL_ID, OWNER_ID 
 from safe_repo.core import script
@@ -191,6 +193,54 @@ def new_progress_session() -> ProgressSession:
     return ProgressSession()
 
 
+def get_progress_sticker_file_id() -> str:
+    config_path = Path(
+        os.environ.get(
+            "PROGRESS_STICKER_CONFIG",
+            os.path.join("data", "progress_sticker.json"),
+        )
+    ).expanduser()
+    try:
+        settings = json.loads(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return os.environ.get("PROGRESS_STICKER_FILE_ID", "").strip()
+    if not isinstance(settings, dict):
+        raise ValueError(f"Invalid progress sticker settings in {config_path}.")
+    file_id = settings.get("file_id", "")
+    if not isinstance(file_id, str):
+        raise ValueError(f"Invalid sticker file_id in {config_path}.")
+    return file_id.strip()
+
+
+def set_progress_sticker_file_id(file_id: str | None) -> None:
+    config_path = Path(
+        os.environ.get(
+            "PROGRESS_STICKER_CONFIG",
+            os.path.join("data", "progress_sticker.json"),
+        )
+    ).expanduser()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=config_path.parent,
+            prefix=f".{config_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as settings_file:
+            temporary_path = settings_file.name
+            json.dump({"file_id": file_id or ""}, settings_file)
+            settings_file.flush()
+            os.fsync(settings_file.fileno())
+        os.replace(temporary_path, config_path)
+    except OSError:
+        if temporary_path and os.path.exists(temporary_path):
+            os.remove(temporary_path)
+        raise
+
+
 def choose_progress_style(percentage: float, style_index=None) -> str:
     """Build a progress bar using one of twelve per-transfer visual styles."""
     style_index = random.randrange(len(THEME_STYLES)) if style_index is None else style_index
@@ -333,7 +383,7 @@ async def progress_bar(current, total, *args):
         )
 
         await message.edit_text(text=text)
-        sticker_file_id = os.environ.get("PROGRESS_STICKER_FILE_ID", "").strip()
+        sticker_file_id = get_progress_sticker_file_id()
         if sticker_file_id and not session.telegram_sticker_attempted:
             session.telegram_sticker_attempted = True
             try:

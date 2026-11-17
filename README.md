@@ -72,11 +72,15 @@ website library folder. Reply `main` to explicitly choose the General chat. The 
 to the supergroup's topics and permission to post there.
 
 To show an actual animated Telegram sticker beneath each transfer progress message, set
-`PROGRESS_STICKER_FILE_ID` to a sticker `file_id` available to this bot. Unicode emoji in the
-progress text remain as a fallback; a real animated sticker cannot be selected without a valid
-bot-accessible sticker ID. The sticker is sent once per transfer and deleted when the transfer
-reaches 100%. All runtime variables are listed in `.env.example`; never commit real tokens or
-connection strings.
+reply to an animated sticker you sent to the bot with `/setprogresssticker`. The owner-only
+command saves the `file_id` Telegram assigned to this bot, so you do not need to find or copy an
+ID yourself. Use `/setprogresssticker off` to disable it. The selected ID is persisted at
+`PROGRESS_STICKER_CONFIG` (default `./data/progress_sticker.json`); mount a Railway volume at
+`/app/data` and set `PROGRESS_STICKER_CONFIG=/app/data/progress_sticker.json` to keep it through
+deployments. Alternatively, set `PROGRESS_STICKER_FILE_ID` manually. Unicode emoji in the
+progress text remain as a fallback. The sticker is sent once per transfer and deleted when the
+transfer reaches 100%. All runtime variables are listed in `.env.example`; never commit real
+tokens or connection strings.
 
 Use `/archive` to copy a video you sent to the bot into your configured study group (reply to
 the video with `/archive`), or `/archive <creator-provided direct HTTPS video-file URL>` to

@@ -55,7 +55,7 @@ def test_transfer_progress_edits_message_and_shows_sticker():
     assert session.stickers[0] in message.text
 
 
-def test_transfer_progress_sends_one_real_telegram_sticker(monkeypatch):
+def test_transfer_progress_sends_one_real_telegram_sticker(monkeypatch, tmp_path):
     class StickerMessage:
         def __init__(self):
             self.deleted = False
@@ -79,6 +79,10 @@ def test_transfer_progress_sends_one_real_telegram_sticker(monkeypatch):
             return sticker_message
 
     monkeypatch.setenv("PROGRESS_STICKER_FILE_ID", "animated-sticker-file-id")
+    monkeypatch.setenv(
+        "PROGRESS_STICKER_CONFIG",
+        str(tmp_path / "progress_sticker.json"),
+    )
     message = ProgressMessage()
     session = ProgressSession()
 
