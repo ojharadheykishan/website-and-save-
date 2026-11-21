@@ -267,14 +267,8 @@ async def _run_single_link_job(payload):
     status_message = await app.get_messages(chat_id, int(payload["status_message_id"]))
     if not request_message or not status_message:
         raise RuntimeError("The queued request or its status message is no longer available.")
-    lock = link_queue_locks.setdefault(user_id, asyncio.Lock())
-    try:
-        async with lock:
-            await status_message.edit_text("Processing...")
-            await _process_single_link(app, request_message, payload["link"], status_message)
-    finally:
-        if not lock.locked():
-            link_queue_locks.pop(user_id, None)
+    await status_message.edit_text("Processing...")
+    await _process_single_link(app, request_message, payload["link"], status_message)
 
 
 register_handler("single_link", _run_single_link_job)
@@ -285,8 +279,31 @@ async def show_queue(_, message):
     user_id = message.from_user.id if message.from_user else message.chat.id
     counts = await get_worker_manager().counts(user_id)
     await message.reply_text(
-        f"📥 Link queue: {counts['pending']} waiting; "
-        f"{counts['running']} processing; {counts['failed']} failed."
+        f"📥 **Queue Status (Real-Time)**\n\n"
+        f"⏳ Waiting: {counts['pending']}\n"
+        f"🔄 Processing: {counts['running']}\n"
+        f"✅ Completed: {counts['done']}\n"
+        f"❌ Failed: {counts['failed']}\n"
+        f"🛑 Cancelled: {counts['cancelled']}\n\n"
+        f"💡 Multiple links now process simultaneously (no waiting in line)."
+    )
+
+
+@app.on_message(filters.command("status") & filters.private)
+async def show_status(_, message):
+    user_id = message.from_user.id if message.from_user else message.chat.id
+    counts = await get_worker_manager().counts(user_id)
+    active = counts['running']
+    completed = counts['done']
+    total_active = active + completed
+    await message.reply_text(
+        f"📊 **Real-Time Processing Status**\n\n"
+        f"🔄 Currently Processing: {active}\n"
+        f"✅ Completed: {completed}\n"
+        f"⏳ Waiting: {counts['pending']}\n"
+        f"❌ Failed: {counts['failed']}\n"
+        f"📋 Total Active Jobs: {total_active}\n\n"
+        f"{'🚀 All links processing concurrently!' if active > 0 else '✅ No active processing.'}"
     )
 
 

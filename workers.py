@@ -322,8 +322,8 @@ class BackgroundWorkers:
     QUEUES = ("downloads",)
 
     def __init__(self) -> None:
-        self.download_concurrency = self._positive_int("DOWNLOAD_CONCURRENCY", 2)
-        self.upload_concurrency = self._positive_int("UPLOAD_CONCURRENCY", 2)
+        self.download_concurrency = self._positive_int("DOWNLOAD_CONCURRENCY", 10)
+        self.upload_concurrency = self._positive_int("UPLOAD_CONCURRENCY", 5)
         self.max_retries = self._positive_int("TASK_MAX_RETRIES", 3)
         self.graceful_timeout = self._positive_int("WORKER_SHUTDOWN_TIMEOUT", 30)
         self._store: Any = None
