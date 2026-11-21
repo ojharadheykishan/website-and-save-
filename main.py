@@ -813,19 +813,10 @@ async def batch_link(_, message):
         if target_type == "supergroup":
             try:
                 forum_topics = await _get_forum_topics(target_chat.id)
-            except Exception as error:
-                if "CHAT_NOT_FORUM" in str(error).upper():
-                    forum_topics = None
-                else:
-                    logger.exception(
-                        "Could not inspect forum topics in destination %s",
-                        target_chat.id,
-                    )
-                    await app.send_message(
-                        message.chat.id,
-                        "I couldn't verify the destination's forum topics. Check that the bot can access this supergroup, then try again.",
-                    )
-                    return
+            except Exception:
+                # Treat any forum-topics access failure as a non-forum supergroup.
+                # The bot can still post to the main chat even if it can't list topics.
+                forum_topics = None
 
             if forum_topics is None and destination_thread_id is not None:
                 await app.send_message(
