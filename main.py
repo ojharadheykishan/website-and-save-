@@ -307,6 +307,79 @@ async def show_status(_, message):
     )
 
 
+@app.on_message(filters.command("topics") & filters.private)
+async def list_topics(_, message):
+    """List forum topics in a supergroup destination."""
+    if not message.from_user:
+        return
+    user_id = message.from_user.id
+    command = getattr(message, "command", []) or []
+    if len(command) < 2:
+        await message.reply_text(
+            "तरीका: `/topics <सुपरग्रुप_लिंक_या_ID>`\n"
+            "उदाहरण: `/topics https://t.me/cet102026`"
+        )
+        return
+
+    reference = command[1].strip()
+    try:
+        if reference.lstrip("-").isdigit():
+            target_chat = await app.get_chat(int(reference))
+        else:
+            target_chat = await app.get_chat(reference)
+
+        bot_user = await app.get_me()
+        membership = await app.get_chat_member(target_chat.id, bot_user.id)
+        member_status = str(getattr(membership, "status", "")).lower().rsplit(".", 1)[-1]
+
+        if member_status in {"left", "kicked"}:
+            await message.reply_text("बॉड इस सुपरग्रुप का सदस्य नहीं है। पहले बॉड को जोड़ें।")
+            return
+
+        target_type = str(target_chat.type).lower().split(".")[-1]
+        if target_type not in {"supergroup", "group"}:
+            await message.reply_text("यह सुपरग्रुप या ग्रुप नहीं है।")
+            return
+
+        try:
+            forum_topics = await _get_forum_topics(target_chat.id)
+        except Exception as error:
+            err_text = str(error).upper()
+            if "CHAT_NOT_FORUM" in err_text:
+                await message.reply_text(
+                    f"📂 **{target_chat.title or target_chat.id}**\n\n"
+                    "यह एक नियमित सुपरग्रुप है, फोरम सुपरग्रुप नहीं है।\n"
+                    "किसी फोरम टॉपिक की सूची उपलब्ध नहीं है।"
+                )
+            else:
+                await message.reply_text(
+                    f"⚠️ फोरम टॉपिक्स लिस्ट नहीं किए जा सके: {error}"
+                )
+            return
+
+        if not forum_topics:
+            await message.reply_text(
+                f"📂 **{target_chat.title or target_chat.id}**\n\n"
+                "कोई फोरम टॉपिक उपलब्ध नहीं है।"
+            )
+            return
+
+        lines = [f"📂 **{target_chat.title or target_chat.id}** — फोरम टॉपिक्स\n"]
+        for topic in forum_topics[:50]:
+            topic_id = getattr(topic, "id", "N/A")
+            title = getattr(topic, "title", "Untitled")
+            lines.append(f"• `{topic_id}` — {title}")
+
+        lines.append("\nबैच में उपयोग करें: `/batch <start_link> <end_link>` और फिर टॉपिक ID दें।")
+        await message.reply_text("\n".join(lines))
+    except Exception as error:
+        logger.exception("Could not list topics for %s", reference)
+        await message.reply_text(
+            f"⚠️ टॉपिक्स लिस्ट नहीं किए जा सके: {error}\n"
+            "सुनिश्चित करें कि बॉड सुपरग्रुप का एडमिन है और लिंक सही है।"
+        )
+
+
 @app.on_message(filters.command("dest") & filters.private)
 async def manage_destinations(_, message):
     if not message.from_user:
@@ -811,12 +884,25 @@ async def batch_link(_, message):
         destination_chat_id = target_chat.id
 
         if target_type == "supergroup":
+            forum_topics = None
             try:
                 forum_topics = await _get_forum_topics(target_chat.id)
-            except Exception:
-                # Treat any forum-topics access failure as a non-forum supergroup.
-                # The bot can still post to the main chat even if it can't list topics.
-                forum_topics = None
+            except Exception as error:
+                err_text = str(error).upper()
+                if "CHAT_NOT_FORUM" in err_text:
+                    forum_topics = None
+                else:
+                    logger.exception(
+                        "Could not inspect forum topics in destination %s",
+                        target_chat.id,
+                    )
+                    await app.send_message(
+                        message.chat.id,
+                        "⚠️ यह सुपरग्रुप फोरम टॉपिक्स लिस्ट नहीं कर सका (परमिशन समस्या हो सकती है)। "
+                        "वीडियो जनरल/मेन चैट में भेजे जाएंगे।\n"
+                        "फोरम टॉपिक में भेजने के लिए बॉड को सुपरग्रुप एडमिन बनाएं और फिर /batch आज़माएं।",
+                    )
+                    forum_topics = None
 
             if forum_topics is None and destination_thread_id is not None:
                 await app.send_message(
@@ -825,7 +911,7 @@ async def batch_link(_, message):
                 )
                 return
 
-            if forum_topics is not None:
+            if forum_topics:
                 topic_candidates = [
                     topic_id
                     for topic_id in (destination_thread_id, parsed_destination_message)
@@ -867,10 +953,10 @@ async def batch_link(_, message):
                     topic_response = await app.ask(
                         message.chat.id,
                         text=(
-                            f"**{target_chat.title or target_chat.id}** is a forum supergroup.\n"
+                            f"**{target_chat.title or target_chat.id}** एक फोरम सुपरग्रुप है।\n"
                             f"{topic_options}\n\n"
-                            "Reply with a topic ID or exact topic name to place the batch there, "
-                            "or `main` to use the General chat."
+                            "बैच वहां भेजने के लिए टॉपिक ID या सटीक टॉपिक नाम का उत्तर दें, "
+                            "या `main` लिखें जनरल चैट के लिए।"
                         ),
                         timeout=300,
                     )
@@ -889,13 +975,13 @@ async def batch_link(_, message):
                         if selected_topic is None:
                             await app.send_message(
                                 message.chat.id,
-                                "That topic wasn't found. Batch cancelled; start `/batch` again and choose a listed topic ID or name.",
+                                "वह टॉपिक नहीं मिला। बैच रद्द किया गया; फिर से /batch शुरू करें और सूचीबद्ध टॉपिक ID या नाम चुनें।",
                             )
                             return
 
-                if selected_topic is not None:
-                    destination_thread_id = int(selected_topic.id)
-                    destination_folder = str(selected_topic.title).strip()
+                    if selected_topic is not None:
+                        destination_thread_id = int(selected_topic.id)
+                        destination_folder = str(selected_topic.title).strip()
 
         topic_label = (
             f"\nForum topic: **{destination_folder or destination_thread_id}** "
