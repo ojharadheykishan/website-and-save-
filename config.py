@@ -24,6 +24,9 @@ STREAM_CHANNEL_USERNAME = "Link09660"
 # Owner(s) of the bot. Keep as a list for filters.user compatibility.
 OWNER_ID = [8552899459]
 
+# Website streaming URL (port 8080 for online video playback)
+WEBSITE_URL = os.environ.get("WEBSITE_URL", "https://2.website-and-save-production-75d9879e.up.railway.app:8080").strip()
+
 MONGO_DB = (os.environ.get("MONGODB_URI") or os.environ.get("MONGO_DB") or "").strip()
 
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID") or CHANNEL_ID)

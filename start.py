@@ -8,6 +8,18 @@ from safe_repo.core.mongo import db as mdb
 from safe_repo.core.mongo.users_db import add_user, get_user
 from config import OWNER_ID, CLONE_LOG_CHANNEL
 
+# Import premium brand constants
+from script import (
+    BOT_NAME,
+    BOT_TAGLINE,
+    HINDI_WELCOME,
+    CREATOR,
+    CREATOR_LINK,
+    WEBSITE_URL,
+    WEBSITE_LABEL,
+    PREMIUM_SETTINGS_TXT,
+)
+
 WELCOME_STYLES = [
     ("🌈", "Aaj ka din ek fresh start ke naam!"),
     ("✨", "Ready ho? Chalo kuch naya save karte hain!"),
@@ -20,39 +32,64 @@ WELCOME_STYLES = [
 
 buttons = InlineKeyboardMarkup(
     [
-        [InlineKeyboardButton("Help", callback_data='show_help'), InlineKeyboardButton("Settings", callback_data='show_settings')],
-        [InlineKeyboardButton("Join Channel", url="https://t.me/radheyojha9")],
+        [
+            InlineKeyboardButton("Help", callback_data='show_help'),
+            InlineKeyboardButton("Settings", callback_data='show_settings'),
+        ],
+        [
+            InlineKeyboardButton("Join Channel", url="https://t.me/radheyojha9"),
+            InlineKeyboardButton(WEBSITE_LABEL, url=WEBSITE_URL),
+        ],
     ]
 )
+
+WELCOME_PHOTO = "welcome_premium.svg"
+
 
 @app.on_message(filters.command("start"))
 async def start(_, message):
     join = await subscribe(_, message)
     if join == 1:
         return
-    
+
     user_id = message.from_user.id
     user_exists = await get_user(user_id)
     if not user_exists:
         await add_user(user_id)
-    
+
     # Check if user has an active session (logged in)
     data = await mdb.get_data(message.from_user.id)
     session = None
     if data:
         session = data.get("session")
-    status_text = "🔓 You are logged in." if session else "🔒 You are logged out."
-    
+    status_text = "🔓 Logged In" if session else "🔒 Logged Out"
+
     # Get random motivational quote
     quote = random.choice(script.MOTIVATIONAL_QUOTES)
-    welcome_emoji, welcome_line = random.choice(WELCOME_STYLES)
-    
-    await message.reply_text(
-        text=f"{welcome_emoji} **{welcome_line}**\n\n" +
-             script.START_TXT.format(message.from_user.mention) +
-             f"\n\n{status_text}\n\n💭 **Daily Motivation:**\n\"{quote}\"",
-        reply_markup=buttons
+
+    # Send premium 3D welcome photo (Character A - Futuristic Robot)
+    await message.reply_photo(
+        photo=WELCOME_PHOTO,
+        caption=f"✨ {BOT_NAME} — {BOT_TAGLINE} ✨\n{HINDI_WELCOME}",
     )
+
+    # Build premium welcome caption
+    welcome_caption = script.START_TXT.format(
+        bot_name=BOT_NAME,
+        tagline=BOT_TAGLINE,
+        hi_welcome=HINDI_WELCOME,
+        mention=message.from_user.mention,
+        session_status=status_text,
+        quote=quote,
+        creator=CREATOR,
+        creator_link=CREATOR_LINK,
+    )
+
+    await message.reply_text(
+        text=welcome_caption,
+        reply_markup=buttons,
+    )
+
 
 @app.on_callback_query(filters.regex('show_help'))
 async def show_help_callback(_, callback_query):
@@ -68,6 +105,7 @@ async def show_help_callback(_, callback_query):
         reply_markup=help_buttons
     )
 
+
 @app.on_callback_query(filters.regex('show_help2'))
 async def show_help2_callback(_, callback_query):
     help2_buttons = InlineKeyboardMarkup(
@@ -82,6 +120,7 @@ async def show_help2_callback(_, callback_query):
         reply_markup=help2_buttons
     )
 
+
 @app.on_callback_query(filters.regex('show_settings'))
 async def show_settings_callback(_, callback_query):
     settings_buttons = InlineKeyboardMarkup(
@@ -91,16 +130,17 @@ async def show_settings_callback(_, callback_query):
     )
     await callback_query.answer()
     await callback_query.edit_message_text(
-        text=script.SETTINGS_TXT,
+        text=PREMIUM_SETTINGS_TXT.format(creator=CREATOR),
         reply_markup=settings_buttons
     )
+
 
 @app.on_message(filters.command("help"))
 async def help_command(_, message):
     join = await subscribe(_, message)
     if join == 1:
         return
-    
+
     help_buttons = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("Usage Instructions", callback_data='show_help2')],
@@ -112,6 +152,7 @@ async def help_command(_, message):
         reply_markup=help_buttons
     )
 
+
 @app.on_callback_query(filters.regex('back_to_start'))
 async def back_to_start_callback(_, callback_query):
     # Check if user has an active session (logged in)
@@ -119,14 +160,24 @@ async def back_to_start_callback(_, callback_query):
     session = None
     if data:
         session = data.get("session")
-    status_text = "🔓 You are logged in." if session else "🔒 You are logged out."
-    
+    status_text = "🔓 Logged In" if session else "🔒 Logged Out"
+
     # Get random motivational quote
     quote = random.choice(script.MOTIVATIONAL_QUOTES)
-    
+
+    welcome_caption = script.START_TXT.format(
+        bot_name=BOT_NAME,
+        tagline=BOT_TAGLINE,
+        hi_welcome=HINDI_WELCOME,
+        mention=callback_query.from_user.mention,
+        session_status=status_text,
+        quote=quote,
+        creator=CREATOR,
+        creator_link=CREATOR_LINK,
+    )
+
     await callback_query.answer()
     await callback_query.edit_message_text(
-        text=script.START_TXT.format(callback_query.from_user.mention) + 
-             f"\n\n{status_text}\n\n💭 **Daily Motivation:**\n\"{quote}\"",
+        text=welcome_caption,
         reply_markup=buttons
     )

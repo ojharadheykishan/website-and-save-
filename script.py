@@ -2,7 +2,46 @@
 
 # ------------------------------------------------------------ #
 
+# === RADHEY SAVE BOT – PREMIUM BRAND IDENTITY ===
+
+from config import WEBSITE_URL
+
+BOT_NAME = "RADHEY SAVE BOT"
+BOT_TAGLINE = "Your Smart Media Assistant"
+HINDI_WELCOME = "पधारो सा! आपका स्वागत है।"
+CREATOR = "Made By Radhey Kishan Ojha ❤️"
+CREATOR_LINK = "https://t.me/Radheyojha096"
+WEBSITE_LABEL = "🌐 Website Player (Port 8080)"
+
 START_TXT = """
+✨══════════════════════════════════════════════════════════✨
+🤖 **{bot_name}** – *{tagline}*
+✨══════════════════════════════════════════════════════════✨
+
+{hi_welcome}
+
+👋 नमस्ते {mention}! आप **RADHEY SAVE BOT** के प्रीमियम वेलकम सिस्टम में आ चुके हैं।
+
+🔥 **फ्यूचरिस्टिक 3D वेलकम अनुभव** – रॉयल राजस्थानी स्टाइल में
+
+📋 **मुख्य विशेषताएं:**
+• 🔒 प्राइवेट चैनल मीडिया कॉपी करें
+• 📦 बैच डाउनलोड (बulk सेव करें)
+• 🌐 वेबसाइट पर वीडियो ऑनलाइन चलाएं (पोर्ट 8080)
+• ⚡ प्रीमियम यूजर्स को प्रायोरिटी प्रोसेसिंग
+
+🔐 **लॉगिन स्टेटस:** {session_status}
+
+💬 **डेली मोटिवेशन:**
+"{quote}"
+
+{creator}
+📞 {creator_link}
+✨══════════════════════════════════════════════════════════✨
+"""
+
+# Original START_TXT preserved for backward compatibility
+ORIGINAL_START_TXT = """
 Hi, welcome to Advance Content Saver Bot, designed to save restricted messages from public/private channels and private groups. First login in bot by /login then send post link.
 """
 
@@ -129,6 +168,21 @@ ADMINS PANEL 🛠️
 
 SETTINGS_TXT = """
 Welcome to the settings section. Here, you can choose button: caption or session and thumbnail.
+"""
+
+# === PREMIUM SETTINGS TEXT ===
+PREMIUM_SETTINGS_TXT = """
+⚙️ **सेटिंग्स पैनल – RADHEY SAVE BOT**
+
+🛠️ अपनी प्राथमिकताएं सेट करें:
+
+• 📝 कैप्शन कस्टमाइज़ करें
+• 🖼️ थंबनेल सेट करें
+• 🔄 नाम बदलें (Rename Tag)
+• 🎯 डेस्टिनेशन चैट सेट करें
+• 🔐 लॉगिन / लॉगआउट
+
+{creator}
 """
 
 CAPTI0NS_TXT = """
