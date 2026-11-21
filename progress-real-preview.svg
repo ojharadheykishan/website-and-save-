@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1580" viewBox="0 0 1440 1580" role="img" aria-labelledby="title description">
+  <title id="title">Telegram progress bar options with the bot's current sticker set</title>
+  <desc id="description">Three Telegram dark-theme message mockups show text and emoji progress-bar styles, plus all 40 rotating emoji stickers currently used by the bot.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101722"/>
+      <stop offset="1" stop-color="#172233"/>
+    </linearGradient>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .white { fill: #f2f5f8; }
+      .muted { fill: #9eacba; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+  <rect width="1440" height="1260" fill="url(#bg)"/>
+  <text x="64" y="58" fill="#63d9a7" font-size="15" font-weight="750" letter-spacing="2">SAFE_REPO BOT  /  TELEGRAM-REALISTIC MOCKUP</text>
+  <text x="64" y="105" class="white" font-size="32" font-weight="750">Three progress looks that fit Telegram</text>
+  <text x="64" y="136" class="muted" font-size="16">Plain message styling only: Telegram redraws the text as transfer updates arrive.</text>
+
+  <rect x="48" y="170" width="1344" height="326" rx="24" fill="#202c39" stroke="#334250"/>
+  <text x="76" y="207" fill="#63d9a7" font-size="14" font-weight="750" letter-spacing="1.5">01  /  CLEAN NEON · closest to the current bot</text>
+  <rect x="76" y="225" width="805" height="246" rx="19" fill="#17212b"/>
+  <text x="98" y="253" fill="#83d8ff" font-size="14" font-weight="700">UPLOADING…</text>
+  <text x="98" y="278" class="white" font-size="15">⠋ 🚀 Neon Blue  68%</text>
+  <text x="98" y="302" class="white" font-size="14">📁 travel.mp4  ·  📄 MP4</text>
+  <text x="98" y="325" class="muted" font-size="13">🔗 Destination: N/A</text>
+  <text x="98" y="350" class="muted" font-size="13">📊 Progress</text>
+  <text x="98" y="373" font-size="17">🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦⬜⬜⬜⬜⬜⬜⬜</text>
+  <text x="98" y="398" class="white" font-size="13">📦 680 MB / 1 GB     ⚡ 8.4 MB/s     ⏳ 00:42</text>
+  <text x="98" y="422" class="muted" font-size="13">🎯 68% done</text>
+  <text x="98" y="450" class="muted" font-size="12">Telegram text updates — no fake CSS gradient or moving web bar.</text>
+  <rect x="908" y="234" width="450" height="102" rx="18" fill="#263544"/>
+  <text x="938" y="272" class="white" font-size="14" font-weight="700">Sticker sent separately (optional)</text>
+  <text x="938" y="304" font-size="26">🚀  →  ✨  →  🔥</text>
+  <text x="908" y="364" class="muted" font-size="13">Can use the configured animated Telegram sticker.</text>
+  <text x="908" y="385" class="muted" font-size="13">The bar emoji can change on each progress update.</text>
+  <rect x="908" y="410" width="245" height="52" rx="16" fill="#314456"/>
+  <text x="929" y="443" font-size="25">🎞️</text>
+  <text x="973" y="441" class="muted" font-size="13">sticker reply</text>
+
+  <rect x="48" y="516" width="1344" height="326" rx="24" fill="#202c39" stroke="#334250"/>
+  <text x="76" y="553" fill="#a88bff" font-size="14" font-weight="750" letter-spacing="1.5">02  /  CYBER BLOCKS · sharper, more compact</text>
+  <rect x="76" y="571" width="805" height="246" rx="19" fill="#17212b"/>
+  <text x="98" y="600" fill="#c2a8ff" font-size="14" font-weight="700">📤 UPLOAD IN PROGRESS</text>
+  <text x="98" y="625" class="white" font-size="15">⚡ 68%  ·  travel.mp4</text>
+  <text x="98" y="655" fill="#bba5ff" class="mono" font-size="17">[█████████████░░░░░░░]</text>
+  <text x="98" y="681" class="muted" font-size="13">13 / 20 blocks  ·  bar fills as Telegram reports progress</text>
+  <text x="98" y="711" class="white" font-size="13">📦 680 MB / 1 GB    ⚡ 8.4 MB/s    ⏳ 00:42</text>
+  <text x="98" y="741" class="muted" font-size="13">Status: Sending your file…</text>
+  <text x="98" y="780" class="muted" font-size="12">A different Unicode bar — still a normal Telegram message.</text>
+  <rect x="908" y="580" width="450" height="102" rx="18" fill="#263544"/>
+  <text x="938" y="618" class="white" font-size="14" font-weight="700">Sticker mood</text>
+  <text x="938" y="650" font-size="26">🛠️  →  🚀  →  🏁</text>
+  <text x="908" y="713" class="muted" font-size="13">Clean status, bar, size, speed and ETA.</text>
+  <text x="908" y="734" class="muted" font-size="13">No long quote/footer on every update.</text>
+  <rect x="908" y="758" width="245" height="52" rx="16" fill="#314456"/>
+  <text x="929" y="791" font-size="25">🚀</text>
+  <text x="973" y="789" class="muted" font-size="13">sticker reply</text>
+
+  <rect x="48" y="862" width="1344" height="326" rx="24" fill="#202c39" stroke="#334250"/>
+  <text x="76" y="899" fill="#ffc16e" font-size="14" font-weight="750" letter-spacing="1.5">03  /  PLAYFUL MILESTONES · progress + changing sticker mood</text>
+  <rect x="76" y="917" width="805" height="246" rx="19" fill="#17212b"/>
+  <text x="98" y="946" fill="#ffc16e" font-size="14" font-weight="700">📥 DOWNLOADING…</text>
+  <text x="98" y="972" class="white" font-size="15">✨ 68% complete — almost there!</text>
+  <text x="98" y="1005" font-size="18">🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛⬛⬛⬛</text>
+  <text x="98" y="1033" class="white" font-size="13">📦 680 MB / 1 GB     ⚡ 8.4 MB/s     ⏳ 00:42</text>
+  <text x="98" y="1062" class="muted" font-size="13">Sticker changes with the transfer stage:</text>
+  <text x="98" y="1093" class="white" font-size="19">🚀 Starting    ✨ Moving    🔥 Nearly done    🎉 Finished</text>
+  <text x="98" y="1137" class="muted" font-size="12">These are successive updates, not four stickers at once.</text>
+  <rect x="908" y="926" width="450" height="102" rx="18" fill="#263544"/>
+  <text x="938" y="964" class="white" font-size="14" font-weight="700">A real update sequence looks like:</text>
+  <text x="938" y="996" class="muted" font-size="13">40%  →  68%  →  92%  →  100%</text>
+  <text x="908" y="1058" class="muted" font-size="13">Telegram edits the message when transfer</text>
+  <text x="908" y="1079" class="muted" font-size="13">callbacks arrive; timing isn't frame-by-frame.</text>
+  <rect x="908" y="1102" width="245" height="52" rx="16" fill="#314456"/>
+  <text x="929" y="1135" font-size="25">🎉</text>
+  <text x="973" y="1133" class="muted" font-size="13">sticker reply</text>
+
+  <rect x="48" y="1208" width="1344" height="300" rx="24" fill="#202c39" stroke="#334250"/>
+  <text x="76" y="1250" fill="#63d9a7" font-size="15" font-weight="750" letter-spacing="1.5">THE BOT'S CURRENT ROTATING EMOJI STICKERS</text>
+  <text x="76" y="1277" class="muted" font-size="13">One emoji appears beside the progress update; the sequence is shuffled for each transfer.</text>
+  <text x="92" y="1324" font-size="25">🎉  🥳  😎  🤩  😍  😇  🤖  👻  💀  🎃  💩  🤡  👽  🐱  🐼  🦊  🐸  🐵  🦄  🐳</text>
+  <text x="92" y="1368" font-size="25">🦋  🌻  🍀  🍉  🍕  🍩  ⚽  🏆  🎯  🎁  💎  🔥  ⚡  🌈  🚀  🐶  🤣  🍔  🫡  🧸</text>
+  <rect x="76" y="1392" width="750" height="76" rx="17" fill="#263544"/>
+  <text x="100" y="1423" class="white" font-size="14" font-weight="700">Optional real animated Telegram sticker</text>
+  <text x="100" y="1449" class="muted" font-size="13">Appears as a separate reply only when the owner configures one.</text>
+  <text x="878" y="1438" font-size="42">🎞️  ✨  🚀</text>
+  <text x="64" y="1542" class="muted" font-size="13">Static picture; Telegram updates text when transfer callbacks arrive. Existing progress stickers above are emoji; configured animated stickers are sent separately.</text>
+</svg>

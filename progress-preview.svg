@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title description">
+  <title id="title">Modern Telegram transfer progress preview</title>
+  <desc id="description">A dark Telegram-style chat mockup showing a colorful animated-style progress bar and rotating sticker ideas.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101525"/>
+      <stop offset="1" stop-color="#1b1630"/>
+    </linearGradient>
+    <linearGradient id="meter" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38e6c1"/>
+      <stop offset=".52" stop-color="#6d8cff"/>
+      <stop offset="1" stop-color="#c475ff"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".38"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-100%" width="160%" height="300%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .muted { fill: #a7aec4; }
+      .white { fill: #f5f7ff; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="900" fill="url(#background)"/>
+  <circle cx="1050" cy="90" r="220" fill="#795cff" opacity=".12"/>
+  <circle cx="100" cy="820" r="250" fill="#30ddc2" opacity=".08"/>
+
+  <text x="78" y="92" class="white" font-size="17" font-weight="700" letter-spacing="3">SAFE_REPO  /  UI CONCEPT</text>
+  <text x="78" y="148" class="white" font-size="38" font-weight="750">A fresher progress experience</text>
+  <text x="78" y="182" class="muted" font-size="18">Modern gradient meter · lively status · rotating sticker moments</text>
+
+  <rect x="76" y="222" width="1048" height="570" rx="28" fill="#202b3a" stroke="#39465a" stroke-width="2"/>
+  <rect x="76" y="222" width="1048" height="72" rx="28" fill="#263346"/>
+  <path d="M76 266h1048v28H76z" fill="#263346"/>
+  <circle cx="118" cy="258" r="20" fill="#5688ff"/>
+  <text x="118" y="265" text-anchor="middle" class="white" font-size="19" font-weight="700">S</text>
+  <text x="154" y="256" class="white" font-size="19" font-weight="700">Safe Repo Bot</text>
+  <text x="154" y="278" class="muted" font-size="13">bot · transfer update</text>
+  <text x="1067" y="263" text-anchor="end" fill="#5be0b8" font-size="13" font-weight="700">ONLINE</text>
+
+  <rect x="112" y="322" width="700" height="422" rx="22" fill="#17212d"/>
+  <rect x="132" y="342" width="660" height="382" rx="18" fill="#202f40"/>
+  <text x="160" y="380" fill="#76d6ff" font-size="17" font-weight="700">⬆  UPLOADING</text>
+  <text x="740" y="380" text-anchor="end" class="white" font-size="30" font-weight="800">68%</text>
+
+  <text x="160" y="420" class="white" font-size="16" font-weight="650">summer_trip_final.mp4</text>
+  <text x="160" y="444" class="muted" font-size="13">MP4 video  ·  680 MB / 1 GB</text>
+
+  <rect x="160" y="466" width="580" height="22" rx="11" fill="#101a27"/>
+  <rect x="160" y="466" width="394" height="22" rx="11" fill="url(#meter)"/>
+  <rect x="160" y="466" width="394" height="22" rx="11" fill="url(#shine)"/>
+  <rect x="160" y="466" width="394" height="22" rx="11" fill="url(#meter)" opacity=".55" filter="url(#glow)"/>
+  <circle cx="554" cy="477" r="6" fill="#ffffff"/>
+  <circle cx="554" cy="477" r="12" fill="none" stroke="#ffffff" stroke-opacity=".48"/>
+
+  <text x="160" y="524" class="muted" font-size="13">TRANSFER SPEED</text>
+  <text x="160" y="550" class="white" font-size="17" font-weight="700">8.4 MB/s</text>
+  <text x="398" y="524" class="muted" font-size="13">TIME LEFT</text>
+  <text x="398" y="550" class="white" font-size="17" font-weight="700">00:42</text>
+  <text x="640" y="524" class="muted" font-size="13">STATUS</text>
+  <text x="640" y="550" fill="#66e5c4" font-size="17" font-weight="700">Looking good</text>
+
+  <rect x="160" y="578" width="580" height="1" fill="#405065"/>
+  <text x="160" y="612" class="muted" font-size="13" font-weight="700" letter-spacing="1">TODAY'S VIBE</text>
+  <text x="160" y="646" class="white" font-size="16">Nearly there — your file is on the move!</text>
+  <text x="160" y="678" class="muted" font-size="13">The bar fills smoothly as Telegram sends updates.</text>
+  <text x="160" y="704" class="muted" font-size="13">An optional animated Telegram sticker can appear below.</text>
+
+  <rect x="838" y="322" width="250" height="422" rx="20" fill="#17212d"/>
+  <text x="864" y="362" class="white" font-size="16" font-weight="700">Sticker rotation</text>
+  <text x="864" y="386" class="muted" font-size="12">Ideas to cycle during transfer</text>
+
+  <rect x="860" y="410" width="206" height="55" rx="14" fill="#25364a"/>
+  <text x="882" y="446" font-size="25">🚀</text>
+  <text x="924" y="444" class="white" font-size="14">Starting</text>
+  <path d="M966 465v14" stroke="#5d6e83" stroke-width="2" stroke-dasharray="3 4"/>
+  <rect x="860" y="484" width="206" height="55" rx="14" fill="#25364a"/>
+  <text x="882" y="520" font-size="25">✨</text>
+  <text x="924" y="518" class="white" font-size="14">In progress</text>
+  <path d="M966 539v14" stroke="#5d6e83" stroke-width="2" stroke-dasharray="3 4"/>
+  <rect x="860" y="558" width="206" height="55" rx="14" fill="#25364a"/>
+  <text x="882" y="594" font-size="25">🔥</text>
+  <text x="924" y="592" class="white" font-size="14">Almost done</text>
+  <path d="M966 613v14" stroke="#5d6e83" stroke-width="2" stroke-dasharray="3 4"/>
+  <rect x="860" y="632" width="206" height="55" rx="14" fill="#25364a"/>
+  <text x="882" y="668" font-size="25">🎉</text>
+  <text x="924" y="666" class="white" font-size="14">Complete</text>
+
+  <text x="78" y="844" class="muted" font-size="13">STATIC DESIGN PREVIEW · Actual Telegram animation depends on message-update timing and animated sticker support.</text>
+</svg>

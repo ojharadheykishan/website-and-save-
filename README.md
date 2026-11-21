@@ -62,10 +62,13 @@ running. MongoDB provides pooled storage and atomic task claims, but Telegram si
 at-least-once: a process crash immediately after Telegram accepts an upload and before its
 completion/checkpoint is persisted can cause that one item to be retried.
 
-For `/batch`, `YES` asks for a destination and verifies bot membership/posting access, then asks
-for confirmation. `NO` uses the user's saved destination, then `DEFAULT_DESTINATION_ID` if set;
-otherwise it preserves the prior behavior and uses the user's private chat if no destination was
-saved. Set `DEFAULT_DESTINATION_ID` to a supergroup ID to make that the deployment-wide default.
+For `/batch`, `YES` asks for a destination and verifies that the bot is an admin in a
+group/supergroup or has channel posting permission, then asks for confirmation. Cloned media is
+sent to that destination; website-link notifications are sent to the requesting user, not the
+selected destination. `NO` uses the user's saved destination, then `DEFAULT_DESTINATION_ID` if
+set; otherwise it preserves the prior behavior and uses the user's private chat if no destination
+was saved. Set `DEFAULT_DESTINATION_ID` to a supergroup ID to make that the deployment-wide
+default.
 For forum supergroups, the bot lists available topics and asks which one to use when the supplied
 link does not identify a topic; a topic ID/link is routed to that topic and is also used as the
 website library folder. Reply `main` to explicitly choose the General chat. The bot needs access

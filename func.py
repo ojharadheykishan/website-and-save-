@@ -75,24 +75,17 @@ async def get_seconds(time_string):
 
 
 PROGRESS_BAR = (
-    "╭━━━〔 {status} 〕━━━╮\n"
+    "╭─ {status} ─╮\n"
     "{spinner} {sticker} **{theme}** `{percent}%`\n"
-    "┌─ 📁 **Name:** `{filename}`\n"
-    "├─ 📄 **Type:** `{extension}`\n"
-    "├─ {link_label} {link}\n"
-    "├─ 📊 **Progress:**\n"
-    "├─ {bar}\n"
-    "├─ 📦 **Size:** `{current}` / `{total}`\n"
-    "├─ ⚡ **Speed:** `{speed}/s`\n"
-    "├─ ⏳ **ETA:** `{eta}`\n"
-    "├─ 🎯 **Done:** `{percent}%`\n"
-    "╰━━━━━━━━━━━━━━━━━╯\n\n"
-    "💬 **{extra_title}**\n"
-    "_“{extra_line1}”_\n"
-    "_“{extra_line2}”_\n\n"
-    "👤 **By Radhey Kishan Ojha**\n"
-    "📞 [t.me/Radheyojha096](https://t.me/Radheyojha096)\n"
-    "__Powered by safe_repo__"
+    "📁 `{filename}` · `{extension}`\n"
+    "🔗 {link_label} {link}\n"
+    "📊 {bar}\n"
+    "📦 `{current}` / `{total}` · ⚡ `{speed}/s`\n"
+    "⏳ `{eta}` · 🎯 `{percent}% complete`\n"
+    "╰━━━━━━━━━━━━━━━━━━╯\n\n"
+    "💬 **{extra_title}** _“{extra_line1}”_ _“{extra_line2}”_\n"
+    "👤 **By Radhey Kishan Ojha** · __Powered by safe_repo__\n"
+    "📞 [t.me/Radheyojha096](https://t.me/Radheyojha096)"
 )
 
 PROGRESS_STICKERS = [

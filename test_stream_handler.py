@@ -549,6 +549,8 @@ def test_private_message_forward_uses_saved_output_destination(monkeypatch):
 
 def test_public_message_copy_targets_selected_forum_topic(monkeypatch):
     copy_options = {}
+    copy_targets = []
+    stream_link_senders = []
 
     class SourceMessage:
         media = True
@@ -566,14 +568,15 @@ def test_public_message_copy_targets_selected_forum_topic(monkeypatch):
             return SourceMessage()
 
         async def copy_message(self, chat_id, from_chat_id, message_id, **kwargs):
+            copy_targets.append(chat_id)
             copy_options.update(kwargs)
             return ResultMessage()
 
     async def fake_log_clone_operation(*args, **kwargs):
         pass
 
-    async def fake_share_stream_link(*args, **kwargs):
-        pass
+    async def fake_share_stream_link(sender, *args, **kwargs):
+        stream_link_senders.append(sender)
 
     monkeypatch.setattr(get_func, "get_user_caption_preference", lambda sender: "")
     monkeypatch.setattr(get_func, "load_delete_words", lambda sender: set())
@@ -596,4 +599,6 @@ def test_public_message_copy_targets_selected_forum_topic(monkeypatch):
 
     asyncio.run(run())
 
+    assert copy_targets == [-100987]
     assert copy_options["reply_to_message_id"] == 55
+    assert stream_link_senders == [123]

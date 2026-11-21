@@ -8,6 +8,7 @@ from safe_repo.core.func import (
     PROGRESS_STICKERS,
     THEME_STYLES,
     ProgressSession,
+    choose_progress_style,
     get_link,
     get_message_link,
     progress_bar,
@@ -53,6 +54,11 @@ def test_transfer_progress_edits_message_and_shows_sticker():
 
     assert message.text is not None
     assert session.stickers[0] in message.text
+    assert "📁 `video.mp4` · `mp4`" in message.text
+    assert f"📊 {choose_progress_style(50, session.style_index)}" in message.text
+    assert "Source Link:" in message.text
+    assert "⚡ `" in message.text and "⏳ `" in message.text
+    assert "Powered by safe_repo" in message.text
 
 
 def test_transfer_progress_sends_one_real_telegram_sticker(monkeypatch, tmp_path):

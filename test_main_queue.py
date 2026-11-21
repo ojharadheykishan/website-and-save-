@@ -109,7 +109,7 @@ def test_batch_yes_verifies_destination_and_confirms_forum_topic(monkeypatch):
     async def get_chat_member(chat_id, user_id):
         assert chat_id == -100654
         assert user_id == 1
-        return SimpleNamespace(status="member")
+        return SimpleNamespace(status="administrator")
 
     monkeypatch.setattr(
         bot_main,
@@ -158,7 +158,7 @@ def test_batch_forum_root_link_requires_and_uses_a_topic_choice(monkeypatch):
         return SimpleNamespace(id=-100654, type="supergroup", title="Destination")
 
     async def get_chat_member(_chat_id, _user_id):
-        return SimpleNamespace(status="member")
+        return SimpleNamespace(status="administrator")
 
     async def get_forum_topics(_chat_id):
         return topics
@@ -223,7 +223,7 @@ def test_direct_forum_subgroup_link_resolves_without_another_topic_prompt(monkey
         return SimpleNamespace(id=-100654, type="supergroup", title="Destination")
 
     async def get_chat_member(_chat_id, _user_id):
-        return SimpleNamespace(status="member")
+        return SimpleNamespace(status="administrator")
 
     async def get_forum_topics(_chat_id):
         return [SimpleNamespace(id=42, title="Physics")]
@@ -252,6 +252,43 @@ def test_direct_forum_subgroup_link_resolves_without_another_topic_prompt(monkey
     assert topic_lookups == [77]
     assert manager.submissions[0][2]["destination_thread_id"] == 77
     assert manager.submissions[0][2]["destination_folder"] == "Chemistry"
+
+
+def test_batch_yes_requires_admin_for_supergroup_destination(monkeypatch):
+    manager = FakeWorkerManager()
+    message = FakeMessage("/batch https://t.me/source/10 https://t.me/source/11")
+    answers = iter(("yes", "https://t.me/destination"))
+    sent_messages = []
+
+    async def ask(_chat_id, text, **_kwargs):
+        return SimpleNamespace(text=next(answers))
+
+    async def send_message(_chat_id, text):
+        sent_messages.append(text)
+        return FakeStatusMessage()
+
+    async def get_chat(_chat_id):
+        return SimpleNamespace(id=-100654, type="supergroup", title="Destination")
+
+    async def get_chat_member(_chat_id, _user_id):
+        return SimpleNamespace(status="member")
+
+    monkeypatch.setattr(bot_main, "get_link", lambda link: link)
+    monkeypatch.setattr(bot_main, "get_worker_manager", lambda: manager)
+    monkeypatch.setattr(bot_main.app, "ask", ask)
+    monkeypatch.setattr(bot_main.app, "send_message", send_message)
+    monkeypatch.setattr(bot_main.app, "get_chat", get_chat)
+    monkeypatch.setattr(
+        bot_main.app,
+        "get_me",
+        lambda: asyncio.sleep(0, result=SimpleNamespace(id=1)),
+    )
+    monkeypatch.setattr(bot_main.app, "get_chat_member", get_chat_member)
+
+    asyncio.run(bot_main.batch_link(None, message))
+
+    assert manager.submissions == []
+    assert any("must be an admin" in text for text in sent_messages)
 
 
 def test_set_progress_sticker_saves_replied_animated_sticker(monkeypatch, tmp_path):

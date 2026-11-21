@@ -720,7 +720,7 @@ async def batch_link(_, message):
     if choice in {"y", "yes"}:
         group_response = await app.ask(
             message.chat.id,
-            text="Send the group/channel link, topic message link, @username, or chat ID. The bot must be a member with permission to post.",
+            text="Send the group/channel link, topic message link, @username, or chat ID. The bot must be an admin in groups/supergroups and have posting permission in channels.",
         )
         group_ref = (group_response.text or "").strip()
         if not group_ref:
@@ -754,7 +754,8 @@ async def batch_link(_, message):
             )
             return
 
-        if str(target_chat.type).lower().split(".")[-1] not in {"group", "supergroup", "channel"}:
+        target_type = str(target_chat.type).lower().split(".")[-1]
+        if target_type not in {"group", "supergroup", "channel"}:
             await app.send_message(message.chat.id, "That link does not point to a group or channel. Batch cancelled.")
             return
         member_status = str(getattr(membership, "status", "")).lower().rsplit(".", 1)[-1]
@@ -770,9 +771,19 @@ async def batch_link(_, message):
                 "The bot cannot send messages in that destination. Update its permissions and try again.",
             )
             return
-        if str(target_chat.type).lower().split(".")[-1] == "channel":
+        if target_type in {"group", "supergroup"} and member_status not in {
+            "administrator",
+            "owner",
+            "creator",
+        }:
+            await app.send_message(
+                message.chat.id,
+                "The bot must be an admin in that group/supergroup before batch media can be sent there.",
+            )
+            return
+        if target_type == "channel":
             privileges = getattr(membership, "privileges", None)
-            if member_status not in {"administrator", "owner"} or not getattr(
+            if member_status not in {"administrator", "owner", "creator"} or not getattr(
                 privileges, "can_post_messages", False
             ):
                 await app.send_message(
@@ -782,7 +793,7 @@ async def batch_link(_, message):
                 return
         destination_chat_id = target_chat.id
 
-        if str(target_chat.type).lower().split(".")[-1] == "supergroup":
+        if target_type == "supergroup":
             try:
                 forum_topics = await _get_forum_topics(target_chat.id)
             except Exception as error:
@@ -884,7 +895,7 @@ async def batch_link(_, message):
             if destination_thread_id is not None
             else (
                 "\nDestination: **General/main chat**"
-                if str(target_chat.type).lower().split(".")[-1] == "supergroup"
+                if target_type == "supergroup"
                 else ""
             )
         )
