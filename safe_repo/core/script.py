@@ -1,1 +1,1 @@
-../script.py
+../../script.py

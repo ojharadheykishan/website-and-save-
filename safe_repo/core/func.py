@@ -1,1 +1,1 @@
-../func.py
+../../func.py
