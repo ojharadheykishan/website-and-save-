@@ -520,6 +520,18 @@ def parse_telegram_link(link: str):
     if not link:
         return None, None, None, False
 
+    # Strip any accidental text before "https://"
+    https_pos = link.find("https://")
+    if https_pos == -1:
+        https_pos = link.find("http://")
+    if https_pos > 0:
+        link = link[https_pos:]
+    elif https_pos == -1:
+        # No scheme found; prepend https:// if it looks like a t.me link
+        stripped = link.strip()
+        if stripped.startswith("t.me/") or stripped.startswith("telegram.me/"):
+            link = "https://" + stripped
+
     link = link.strip()
 
     # tg:// / tg: deep-link scheme -> normalise to https t.me
