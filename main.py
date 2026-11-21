@@ -913,6 +913,18 @@ async def batch_link(_, message):
                     destination_thread_id = int(selected_topic.id)
                     destination_folder = str(selected_topic.title).strip()
 
+            # Warn clearly when no topic ID was found in the URL
+            if destination_thread_id is None:
+                await app.send_message(
+                    message.chat.id,
+                    "⚠️ **कोई टॉपिक ID लिंक में नहीं मिला।**\n\n"
+                    "मीडिया **जनरल/मेन चैट** में भेजा जाएगा।\n\n"
+                    "किसी खास टॉपिक में मीडिया भेजने के लिए टॉपिक लिंक दें:\n"
+                    "• `https://t.me/cet102026/123` (पब्लिक सुपरग्रुप टॉपिक)\n"
+                    "• `https://t.me/c/-100123456789/123` (प्राइवेट सुपरग्रुप टॉपिक)\n"
+                    "जहां `123` टॉपिक/थ्रेड आईडी है।",
+                )
+
         topic_label = (
             f"\nForum topic: **{destination_folder or destination_thread_id}** "
             f"(`{destination_thread_id}`)"
