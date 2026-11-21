@@ -43,7 +43,7 @@ buttons = InlineKeyboardMarkup(
     ]
 )
 
-WELCOME_PHOTO = "welcome_premium.svg"
+WELCOME_PHOTO = "welcome_premium.png"
 
 
 @app.on_message(filters.command("start"))
