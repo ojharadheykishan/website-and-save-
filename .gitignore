@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+*.session
+*.session-journal
+data/
+stream_links.txt
+stream_cache/
