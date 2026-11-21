@@ -896,92 +896,72 @@ async def batch_link(_, message):
                         "Could not inspect forum topics in destination %s",
                         target_chat.id,
                     )
-                    await app.send_message(
-                        message.chat.id,
-                        "⚠️ यह सुपरग्रुप फोरम टॉपिक्स लिस्ट नहीं कर सका (परमिशन समस्या हो सकती है)। "
-                        "वीडियो जनरल/मेन चैट में भेजे जाएंगे।\n"
-                        "फोरम टॉपिक में भेजने के लिए बॉड को सुपरग्रुप एडमिन बनाएं और फिर /batch आज़माएं।",
-                    )
                     forum_topics = None
 
-            if forum_topics is None and destination_thread_id is not None:
-                await app.send_message(
-                    message.chat.id,
-                    "That link includes a forum topic, but this supergroup has no accessible forum topics. Send the supergroup link to use its main chat.",
-                )
-                return
-
-            if forum_topics:
-                topic_candidates = [
-                    topic_id
-                    for topic_id in (destination_thread_id, parsed_destination_message)
-                    if topic_id is not None
-                ]
-                selected_topic = next(
-                    (
-                        topic
-                        for topic in forum_topics
-                        if int(getattr(topic, "id", -1)) in topic_candidates
-                    ),
-                    None,
-                )
-                direct_topic_id = destination_thread_id or parsed_destination_message
-                if selected_topic is None and direct_topic_id is not None:
-                    try:
-                        selected_topic = await _get_forum_topic(
-                            target_chat.id, direct_topic_id
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Could not resolve forum topic %s in destination %s",
-                            direct_topic_id,
-                            target_chat.id,
-                        )
-
-                if selected_topic is None:
-                    topic_options = "\n".join(
-                        f"• `{topic.id}` — {topic.title}"
-                        for topic in forum_topics[:30]
-                    )
-                    if len(forum_topics) > 30:
-                        topic_options += (
-                            f"\n…plus {len(forum_topics) - 30} more; "
-                            "you can enter any topic ID or exact name."
-                        )
-                    if not topic_options:
-                        topic_options = "No forum topics were returned."
-                    topic_response = await app.ask(
-                        message.chat.id,
-                        text=(
-                            f"**{target_chat.title or target_chat.id}** एक फोरम सुपरग्रुप है।\n"
-                            f"{topic_options}\n\n"
-                            "बैच वहां भेजने के लिए टॉपिक ID या सटीक टॉपिक नाम का उत्तर दें, "
-                            "या `main` लिखें जनरल चैट के लिए।"
+            # If user provided a topic link (e.g. https://t.me/cet102026/123),
+            # destination_thread_id is already set. Auto-use it without asking.
+            if destination_thread_id is not None:
+                # Try to verify/confirm the topic exists, but proceed regardless
+                if forum_topics:
+                    topic_found = next(
+                        (
+                            topic
+                            for topic in forum_topics
+                            if int(getattr(topic, "id", -1)) == int(destination_thread_id)
                         ),
-                        timeout=300,
+                        None,
                     )
-                    topic_choice = (topic_response.text or "").strip()
-                    if topic_choice.lower() not in {"main", "general"}:
-                        selected_topic = next(
-                            (
-                                topic
-                                for topic in forum_topics
-                                if topic_choice == str(getattr(topic, "id", ""))
-                                or topic_choice.casefold()
-                                == str(getattr(topic, "title", "")).casefold()
-                            ),
-                            None,
-                        )
-                        if selected_topic is None:
-                            await app.send_message(
-                                message.chat.id,
-                                "वह टॉपिक नहीं मिला। बैच रद्द किया गया; फिर से /batch शुरू करें और सूचीबद्ध टॉपिक ID या नाम चुनें।",
-                            )
-                            return
+                    if topic_found is not None:
+                        destination_folder = str(getattr(topic_found, "title", "") or "").strip()
+                    # If topic not in list but ID was provided, still use it directly
+                # Proceed with the provided topic ID automatically
 
-                    if selected_topic is not None:
-                        destination_thread_id = int(selected_topic.id)
-                        destination_folder = str(selected_topic.title).strip()
+            elif forum_topics:
+                # No topic ID in link; list available topics and ask user
+                topic_options = "\n".join(
+                    f"• `{topic.id}` — {topic.title}"
+                    for topic in forum_topics[:30]
+                )
+                if len(forum_topics) > 30:
+                    topic_options += (
+                        f"\n…plus {len(forum_topics) - 30} more; "
+                        "you can enter any topic ID or exact name."
+                    )
+                if not topic_options:
+                    topic_options = "No forum topics were returned."
+                topic_response = await app.ask(
+                    message.chat.id,
+                    text=(
+                        f"**{target_chat.title or target_chat.id}** एक फोरम सुपरग्रुप है।\n"
+                        f"{topic_options}\n\n"
+                        "बैच वहां भेजने के लिए टॉपिक ID या सटीक टॉपिक नाम का उत्तर दें, "
+                        "या `main` लिखें जनरल चैट के लिए।"
+                    ),
+                    timeout=300,
+                )
+                topic_choice = (topic_response.text or "").strip()
+                if topic_choice.lower() in {"main", "general"}:
+                    destination_thread_id = None
+                    destination_folder = None
+                else:
+                    selected_topic = next(
+                        (
+                            topic
+                            for topic in forum_topics
+                            if topic_choice == str(getattr(topic, "id", ""))
+                            or topic_choice.casefold()
+                            == str(getattr(topic, "title", "")).casefold()
+                        ),
+                        None,
+                    )
+                    if selected_topic is None:
+                        await app.send_message(
+                            message.chat.id,
+                            "वह टॉपिक नहीं मिला। बैच रद्द किया गया; फिर से /batch शुरू करें और सूचीबद्ध टॉपिक ID या नाम चुनें।",
+                        )
+                        return
+                    destination_thread_id = int(selected_topic.id)
+                    destination_folder = str(selected_topic.title).strip()
 
         topic_label = (
             f"\nForum topic: **{destination_folder or destination_thread_id}** "
