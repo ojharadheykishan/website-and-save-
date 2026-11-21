@@ -14,10 +14,11 @@ from script import (
     BOT_TAGLINE,
     HINDI_WELCOME,
     CREATOR,
-    CREATOR_LINK,
+    CONTACT_LINK,
     WEBSITE_URL,
     WEBSITE_LABEL,
     PREMIUM_SETTINGS_TXT,
+    HINDI_JOKES,
 )
 
 WELCOME_STYLES = [
@@ -67,6 +68,9 @@ async def start(_, message):
     # Get random motivational quote
     quote = random.choice(script.MOTIVATIONAL_QUOTES)
 
+    # Get random Hindi joke
+    joke = random.choice(HINDI_JOKES)[0]
+
     # Send premium 3D welcome photo (Character A - Futuristic Robot)
     await message.reply_photo(
         photo=WELCOME_PHOTO,
@@ -81,8 +85,8 @@ async def start(_, message):
         mention=message.from_user.mention,
         session_status=status_text,
         quote=quote,
+        joke=joke,
         creator=CREATOR,
-        creator_link=CREATOR_LINK,
     )
 
     await message.reply_text(
@@ -153,6 +157,23 @@ async def help_command(_, message):
     )
 
 
+@app.on_message(filters.command("contact"))
+async def contact_command(_, message):
+    join = await subscribe(_, message)
+    if join == 1:
+        return
+
+    contact_buttons = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Join Group", url=CONTACT_LINK)],
+        ]
+    )
+    await message.reply_text(
+        text=f"📞 **Contact Us**\n\n{CREATOR}\n🔗 {CONTACT_LINK}",
+        reply_markup=contact_buttons
+    )
+
+
 @app.on_callback_query(filters.regex('back_to_start'))
 async def back_to_start_callback(_, callback_query):
     # Check if user has an active session (logged in)
@@ -165,6 +186,9 @@ async def back_to_start_callback(_, callback_query):
     # Get random motivational quote
     quote = random.choice(script.MOTIVATIONAL_QUOTES)
 
+    # Get random Hindi joke
+    joke = random.choice(HINDI_JOKES)[0]
+
     welcome_caption = script.START_TXT.format(
         bot_name=BOT_NAME,
         tagline=BOT_TAGLINE,
@@ -172,8 +196,8 @@ async def back_to_start_callback(_, callback_query):
         mention=callback_query.from_user.mention,
         session_status=status_text,
         quote=quote,
+        joke=joke,
         creator=CREATOR,
-        creator_link=CREATOR_LINK,
     )
 
     await callback_query.answer()
