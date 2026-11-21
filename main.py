@@ -827,19 +827,14 @@ async def batch_link(_, message):
 
             # If user provided a topic link (e.g. https://t.me/cet102026/123),
             # parse_telegram_link may set parsed_destination_message but leave
-            # destination_thread_id=None. Check if it matches a forum topic ID.
-            if destination_thread_id is None and parsed_destination_message is not None and forum_topics:
-                possible_topic = next(
-                    (
-                        topic
-                        for topic in forum_topics
-                        if int(getattr(topic, "id", -1)) == int(parsed_destination_message)
-                    ),
-                    None,
-                )
-                if possible_topic is not None:
-                    destination_thread_id = int(possible_topic.id)
-                    destination_folder = str(getattr(possible_topic, "title", "") or "").strip()
+            # destination_thread_id=None. Use parsed_destination_message as the
+            # topic ID directly - even if we can't list all forum topics.
+            if destination_thread_id is None and parsed_destination_message is not None:
+                try:
+                    destination_thread_id = int(parsed_destination_message)
+                    destination_folder = f"Topic {destination_thread_id}"
+                except ValueError:
+                    destination_thread_id = None
 
             # If destination_thread_id is now set (from link or auto-detection),
             # auto-use it without asking.
@@ -856,8 +851,7 @@ async def batch_link(_, message):
                     )
                     if topic_found is not None:
                         destination_folder = str(getattr(topic_found, "title", "") or "").strip()
-                    # If topic not in list but ID was provided, still use it directly
-                # Proceed with the provided topic ID automatically
+                # If forum_topics is None/empty, still proceed with the provided topic ID
 
             elif forum_topics:
                 # No topic ID in link; list available topics and ask user

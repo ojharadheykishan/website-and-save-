@@ -24,8 +24,10 @@ STREAM_CHANNEL_USERNAME = "Link09660"
 # Owner(s) of the bot. Keep as a list for filters.user compatibility.
 OWNER_ID = [8552899459]
 
-# Website streaming URL (port 8080 for online video playback)
-WEBSITE_URL = os.environ.get("WEBSITE_URL", "https://2.website-and-save-production-75d9879e.up.railway.app:8080").strip()
+# Website streaming URL for online video playback
+# Set WEBSITE_URL env var to your deployment URL (e.g. https://your-app.up.railway.app)
+# Do not include a port - Railway maps the public URL to the app port automatically.
+WEBSITE_URL = os.environ.get("WEBSITE_URL", "https://2.website-and-save-production-75d9879e.up.railway.app").strip()
 
 MONGO_DB = (os.environ.get("MONGODB_URI") or os.environ.get("MONGO_DB") or "").strip()
 
