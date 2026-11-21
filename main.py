@@ -33,7 +33,7 @@ from safe_repo.core.get_func import (
 from safe_repo.core.func import *
 from safe_repo.core.func import parse_telegram_link, set_progress_sticker_file_id
 from safe_repo.core.mongo import db
-from pyrogram.errors import FloodWait, SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered
+from pyrogram.errors import FloodWait, SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered, MessageIdInvalid
 from safe_repo.core import script
 from safe_repo.core.media_links import get_public_base_url
 from safe_repo.web.study import build_public_study_url, load_catalog_entries
@@ -44,6 +44,21 @@ import re
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def safe_edit(message, text, **kwargs):
+    """Safely edit a message; if MessageIdInvalid, send a new message instead."""
+    try:
+        return await message.edit_text(text, **kwargs)
+    except MessageIdInvalid:
+        chat_id = message.chat.id if hasattr(message, "chat") else None
+        reply_to = message.id if hasattr(message, "id") else None
+        if chat_id:
+            return await app.send_message(chat_id, text, reply_to_message_id=reply_to, **kwargs)
+        return None
+    except Exception:
+        logger.exception("Failed to edit message")
+        return None
 
 
 @app.on_message(
@@ -183,13 +198,13 @@ async def single_link(_, message):
             },
         )
         counts = await manager.counts(user_id)
-        await queue_status.edit_text(
+        await safe_edit(queue_status,
             f"⏳ Added to your queue. {counts['pending']} waiting; "
             f"{counts['running']} processing."
         )
     except Exception as error:
         logger.exception("Could not enqueue single-link task for user %s", user_id)
-        await queue_status.edit_text(f"⚠️ Could not queue this link: {error}")
+        await safe_edit(queue_status, f"⚠️ Could not queue this link: {error}")
 
 
 async def _process_single_link(client, message, link, status_message):
@@ -215,35 +230,33 @@ async def _process_single_link(client, message, link, status_message):
                 )
                 await userbot.start()                
             except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
-                return await msg.edit_text("Login expired /login again...")
+                return await safe_edit(msg, "Login expired /login again...")
             except Exception as e:
                 logger.error(f"Session start error: {e}")
-                return await msg.edit_text("Failed to start session. Please try again.")
+                return await safe_edit(msg, "Failed to start session. Please try again.")
         else:
-            await msg.edit_text("Login in bot first ...")
+            await safe_edit(msg, "Login in bot first ...")
             return
 
         try:
             # Invite links (t.me/+, telegram.me/+) -> join the chat
             if '/+' in link or 'joinchat/' in link:
                 q = await userbot_join(userbot, link)
-                await msg.edit_text(q)
+                await safe_edit(msg, q)
             else:
                 for attempt in range(3):
                     result = await get_msg(userbot, user_id, msg.id, link, 0, message, False)
                     if result != "retry":
                         break
                     if attempt < 2:
-                        await msg.edit_text(
-                            f"⚠️ Temporary error. Retrying ({attempt + 1}/2)..."
-                        )
+                        await safe_edit(msg, f"⚠️ Temporary error. Retrying ({attempt + 1}/2)...")
                         await asyncio.sleep(2 ** attempt)
         except Exception as e:
             logger.error(f"Processing error: {e}")
-            await msg.edit_text(f"Link: `{link}`\n\n**Error:** {str(e)}")
+            await safe_edit(msg, f"Link: `{link}`\n\n**Error:** {str(e)}")
                      
     except FloodWait as fw:
-        await msg.edit_text(f'Try again after {fw.x} seconds due to floodwait from telegram.')
+        await safe_edit(msg, f'Try again after {fw.x} seconds due to floodwait from telegram.')
     except Exception as e:
         logger.error(f"Main error: {e}")
         await app.send_message(user_id, f"Link: `{link}`\n\n**Error:** {str(e)}")
@@ -267,7 +280,7 @@ async def _run_single_link_job(payload):
     status_message = await app.get_messages(chat_id, int(payload["status_message_id"]))
     if not request_message or not status_message:
         raise RuntimeError("The queued request or its status message is no longer available.")
-    await status_message.edit_text("Processing...")
+    await safe_edit(status_message, "Processing...")
     await _process_single_link(app, request_message, payload["link"], status_message)
 
 
@@ -438,7 +451,7 @@ async def thumbnail_preview_command(_, message):
         await status.delete()
     except Exception as error:
         logger.exception("Thumbnail preview failed for user %s", message.from_user.id)
-        await status.edit_text(f"⚠️ Thumbnail preview failed: {error}")
+        await safe_edit(status, f"⚠️ Thumbnail preview failed: {error}")
     finally:
         for path in (media_path, thumb_path):
             if path and os.path.exists(path) and path != f"{message.from_user.id}.jpg":
@@ -993,13 +1006,13 @@ async def batch_link(_, message):
             },
         )
         counts = await get_worker_manager().counts(user_id)
-        await status_message.edit_text(
+        await safe_edit(status_message,
             f"⏳ Batch queued: {total_messages} message(s). "
             f"{counts['pending']} waiting; {counts['running']} processing."
         )
     except Exception as error:
         logger.exception("Could not enqueue batch for user %s", user_id)
-        await status_message.edit_text(f"⚠️ Could not queue this batch: {error}")
+        await safe_edit(status_message, f"⚠️ Could not queue this batch: {error}")
 
 
 async def _run_batch_link_job(payload):
@@ -1015,7 +1028,7 @@ async def _run_batch_link_job(payload):
     lock = link_queue_locks.setdefault(user_id, asyncio.Lock())
     try:
         async with lock:
-            await status_message.edit_text("📦 Batch started...")
+            await safe_edit(status_message, "📦 Batch started...")
             users_loop[user_id] = True
             start_id = payload["start_link"]
             start_message_id = int(payload.get("next_message_id", payload["start_message_id"]))
@@ -1035,7 +1048,7 @@ async def _run_batch_link_job(payload):
                 data = await db.get_data(user_id)
                 session = data.get("session") if data else None
                 if not session:
-                    await status_message.edit_text("Login in bot first ...")
+                    await safe_edit(status_message, "Login in bot first ...")
                     return
 
                 userbot = Client(
@@ -1048,11 +1061,11 @@ async def _run_batch_link_job(payload):
                 try:
                     await userbot.start()
                 except (SessionRevoked, AuthKeyDuplicated, AuthKeyUnregistered):
-                    await status_message.edit_text("Your login expired ... /login again")
+                    await safe_edit(status_message, "Your login expired ... /login again")
                     return
                 except Exception as error:
                     logger.exception("Batch user session start failed for %s", user_id)
-                    await status_message.edit_text(f"Failed to start session: {error}")
+                    await safe_edit(status_message, f"Failed to start session: {error}")
                     return
 
                 for message_id in range(start_message_id, end_message_id + 1):
@@ -1084,7 +1097,7 @@ async def _run_batch_link_job(payload):
                         result = "retry"
                         for attempt in range(3):
                             if attempt:
-                                await msg.edit_text(
+                                await safe_edit(msg,
                                     f"⚠️ Retrying message {message_id} ({attempt}/2)\n"
                                     f"Batch progress: {processed_count}/{total_messages} complete"
                                 )
@@ -1108,7 +1121,7 @@ async def _run_batch_link_job(payload):
                             processed_count += 1
                         else:
                             failed_message_ids.append(message_id)
-                        await msg.edit_text(
+                        await safe_edit(msg,
                             f"📦 Batch progress: {processed_count + len(failed_message_ids)}/"
                             f"{total_messages} processed\n"
                             f"✅ Successful: {processed_count}\n"
