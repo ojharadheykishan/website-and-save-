@@ -826,7 +826,23 @@ async def batch_link(_, message):
                     forum_topics = None
 
             # If user provided a topic link (e.g. https://t.me/cet102026/123),
-            # destination_thread_id is already set. Auto-use it without asking.
+            # parse_telegram_link may set parsed_destination_message but leave
+            # destination_thread_id=None. Check if it matches a forum topic ID.
+            if destination_thread_id is None and parsed_destination_message is not None and forum_topics:
+                possible_topic = next(
+                    (
+                        topic
+                        for topic in forum_topics
+                        if int(getattr(topic, "id", -1)) == int(parsed_destination_message)
+                    ),
+                    None,
+                )
+                if possible_topic is not None:
+                    destination_thread_id = int(possible_topic.id)
+                    destination_folder = str(getattr(possible_topic, "title", "") or "").strip()
+
+            # If destination_thread_id is now set (from link or auto-detection),
+            # auto-use it without asking.
             if destination_thread_id is not None:
                 # Try to verify/confirm the topic exists, but proceed regardless
                 if forum_topics:
